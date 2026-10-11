@@ -1,21 +1,10 @@
 # IoT Giám Sát Nhiệt Độ, Độ Ẩm và Điều Khiển Thông Gió Tủ Thiết Bị Mạng
 
-Dự án đồ án kết thúc học phần môn IoT — Đặc tả kỹ thuật phiên bản **V1.3** (Chốt ngày 09/10/2026).
 
 ---
 
-## 1. Phân Công Thành Viên
 
-| Vai trò | Phụ trách chính | Nhiệm vụ chính |
-|---|---|---|
-| **TV1** | Thiết bị & Giao thức | Mạch phần cứng Node 1 (ESP32 + DHT22 + Relay + Quạt DC), Firmware C++ CONTROLLER (AUTO hysteresis, safety fallback, MQTT v3). |
-| **TV2** | Backend Thiết bị & Dữ liệu | Khung ứng dụng Flask, CSDL Thiết bị/Telemetry/Commands (14 bảng), `mqtt_worker.py` (ingest telemetry, transactional outbox). |
-| **TV3** | Tài khoản & Bảo mật | CSDL IAM (8 bảng), `audit_logs`, `user_activity_logs`, Argon2id, JWT + Refresh Token cookie, Dynamic Security broker controller, UI Auth & Users. |
-| **TV4** | Dashboard, Cảnh báo & Tích hợp | Web React + Vite (Dashboard, Lịch sử, Điều khiển, Cảnh báo, Màn hình Nhật ký làm việc), `alert_worker.py`, Docker Compose. |
-
----
-
-## 2. Cấu Trúc Thư Mục
+## 1. Cấu Trúc Thư Mục
 
 ```text
 ├── Description/          # Hồ sơ đặc tả và đề bài đồ án
@@ -52,9 +41,9 @@ Dự án đồ án kết thúc học phần môn IoT — Đặc tả kỹ thuậ
 
 ---
 
-## 3. Hướng Dẫn Chạy Môi Trường Cục Bộ (Pha 0)
+## 2. Hướng Dẫn Chạy Môi Trường Cục Bộ 
 
-### 3.1. Khởi chạy Database & MQTT Broker qua Docker
+### 2.1. Khởi chạy Database & MQTT Broker qua Docker
 ```bash
 cd deployment
 docker compose up -d
@@ -63,7 +52,7 @@ Dịch vụ khởi động:
 - **PostgreSQL 16**: Port `5432` (Database: `iot_cabinet`, User: `postgres`)
 - **Eclipse Mosquitto**: Port `1883` (MQTT dev), Port `8883` (MQTTS)
 
-### 3.2. Cài đặt và chạy Backend (Python 3.11+)
+### 2.2. Cài đặt và chạy Backend (Python 3.11+)
 ```bash
 cd backend
 python -m venv venv
