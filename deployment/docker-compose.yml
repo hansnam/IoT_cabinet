@@ -1,0 +1,55 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: iot_cabinet_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: iot_cabinet
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d iot_cabinet"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - iot_network
+
+  mosquitto:
+    image: eclipse-mosquitto:2.0.18
+    container_name: iot_cabinet_mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "8883:8883"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    networks:
+      - iot_network
+
+  adminer:
+    image: adminer:latest
+    container_name: iot_cabinet_adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - iot_network
+
+volumes:
+  postgres_data:
+  mosquitto_data:
+  mosquitto_log:
+
+networks:
+  iot_network:
+    driver: bridge
