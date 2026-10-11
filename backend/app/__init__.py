@@ -3,6 +3,7 @@ import uuid
 from flask import Flask, jsonify, request
 from backend.app.config import config_by_name
 from backend.app.extensions import db, migrate, jwt, cors
+import backend.app.models  # Nạp toàn bộ 27 models vào metadata của SQLAlchemy
 
 def create_app(config_name=None):
     """Application Factory cho Flask Backend (Mục 2.2 & 10)"""
