@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP
 from backend.app.extensions import db
 
 class Location(db.Model):
-    """Bảng locations: Vị trí lắp đặt thiết bị / tủ mạng (Mục 6.3)"""
+    """Bảng locations: Vị trí lắp đặt thiết bị / tủ mạng"""
     __tablename__ = "locations"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -19,7 +19,7 @@ class Location(db.Model):
 
 
 class DeviceGroup(db.Model):
-    """Bảng device_groups: Nhóm thiết bị phục vụ quản lý / tổ chức (Mục 6.3)"""
+    """Bảng device_groups: Nhóm thiết bị phục vụ quản lý / tổ chức"""
     __tablename__ = "device_groups"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -32,7 +32,7 @@ class DeviceGroup(db.Model):
 
 
 class DeviceGroupMember(db.Model):
-    """Bảng device_group_members: Thành viên thuộc nhóm thiết bị (Mục 6.3)"""
+    """Bảng device_group_members: Thành viên thuộc nhóm thiết bị"""
     __tablename__ = "device_group_members"
 
     group_id = Column(UUID(as_uuid=True), ForeignKey("device_groups.id", ondelete="CASCADE"), primary_key=True)

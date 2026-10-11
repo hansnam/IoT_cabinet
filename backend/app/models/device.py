@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP, JSONB, BIGINT, REAL
 from backend.app.extensions import db
 
 class Device(db.Model):
-    """Bảng devices: Định danh và trạng thái thiết bị IoT (Mục 6.3)"""
+    """Bảng devices: Định danh và trạng thái thiết bị IoT"""
     __tablename__ = "devices"
 
     device_id = Column(String(64), primary_key=True)
@@ -56,7 +56,7 @@ class Device(db.Model):
 
 
 class DeviceAccess(db.Model):
-    """Bảng device_access: Phân quyền truy cập theo từng thiết bị (Mục 6.3)"""
+    """Bảng device_access: Phân quyền truy cập theo từng thiết bị"""
     __tablename__ = "device_access"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -76,7 +76,7 @@ class DeviceAccess(db.Model):
 
 
 class DeviceCredential(db.Model):
-    """Bảng device_credentials: Quản lý thông tin xác thực MQTT của thiết bị (Mục 6.3)"""
+    """Bảng device_credentials: Quản lý thông tin xác thực MQTT của thiết bị"""
     __tablename__ = "device_credentials"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -107,7 +107,7 @@ class DeviceCredential(db.Model):
 
 
 class DeviceConfig(db.Model):
-    """Bảng device_configs: Cấu hình phiên bản của thiết bị (Mục 6.3)"""
+    """Bảng device_configs: Cấu hình phiên bản của thiết bị"""
     __tablename__ = "device_configs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -143,7 +143,7 @@ class DeviceConfig(db.Model):
 
 
 class DeviceOperation(db.Model):
-    """Bảng device_operations: Tác vụ quản trị bất đồng bộ với Broker (Mục 6.3)"""
+    """Bảng device_operations: Tác vụ quản trị bất đồng bộ với Broker"""
     __tablename__ = "device_operations"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP, JSONB, REAL
 from backend.app.extensions import db
 
 class AlertRule(db.Model):
-    """Bảng alert_rules: Định nghĩa quy tắc kích hoạt cảnh báo (Mục 6.5)"""
+    """Bảng alert_rules: Định nghĩa quy tắc kích hoạt cảnh báo"""
     __tablename__ = "alert_rules"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -32,7 +32,7 @@ class AlertRule(db.Model):
 
 
 class Alert(db.Model):
-    """Bảng alerts: Các sự cố cảnh báo đang mở hoặc đã xử lý (Mục 6.5)"""
+    """Bảng alerts: Các sự cố cảnh báo đang mở hoặc đã xử lý"""
     __tablename__ = "alerts"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -74,7 +74,7 @@ class Alert(db.Model):
 
 
 class AlertEvent(db.Model):
-    """Bảng alert_events: Lịch sử các bước xử lý sự cố cảnh báo (Mục 6.5)"""
+    """Bảng alert_events: Lịch sử các bước xử lý sự cố cảnh báo"""
     __tablename__ = "alert_events"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

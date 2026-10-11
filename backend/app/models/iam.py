@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import UUID, INET, TIMESTAMP
 from backend.app.extensions import db
 
 class User(db.Model):
-    """Bảng users: Người dùng hệ thống (Mục 6.2)"""
+    """Bảng users: Người dùng hệ thống"""
     __tablename__ = "users"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -35,7 +35,7 @@ class User(db.Model):
 
 
 class Role(db.Model):
-    """Bảng roles: Vai trò hệ thống (Mục 6.2)"""
+    """Bảng roles: Vai trò hệ thống"""
     __tablename__ = "roles"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -47,7 +47,7 @@ class Role(db.Model):
 
 
 class Permission(db.Model):
-    """Bảng permissions: Quyền hạn hệ thống (Mục 6.2)"""
+    """Bảng permissions: Quyền hạn hệ thống"""
     __tablename__ = "permissions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -76,7 +76,7 @@ class RolePermission(db.Model):
 
 
 class UserRole(db.Model):
-    """Bảng user_roles: Gán vai trò cho người dùng (Mục 6.2 - V1.3: UQ user_id để mỗi user đúng 1 role)"""
+    """Bảng user_roles: Gán vai trò cho người dùng"""
     __tablename__ = "user_roles"
 
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), primary_key=True)
@@ -114,7 +114,7 @@ class AuthSession(db.Model):
 
 
 class RefreshToken(db.Model):
-    """Bảng refresh_tokens: Opaque Refresh Tokens (SHA-256 digest) với cơ chế rotation & revoke (Mục 6.2)"""
+    """Bảng refresh_tokens: Opaque Refresh Tokens (SHA-256 digest) với cơ chế rotation & revoke"""
     __tablename__ = "refresh_tokens"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -141,7 +141,7 @@ class RefreshToken(db.Model):
 
 
 class LoginAttempt(db.Model):
-    """Bảng login_attempts: Ghi nhận lịch sử thử đăng nhập chống brute-force (Mục 6.2)"""
+    """Bảng login_attempts: Ghi nhận lịch sử thử đăng nhập chống brute-force"""
     __tablename__ = "login_attempts"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

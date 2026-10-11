@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP, JSONB, INET
 from backend.app.extensions import db
 
 class AuditLog(db.Model):
-    """Bảng audit_logs: Kiểm toán các thao tác bảo mật và quản trị nhạy cảm (Mục 6.5)"""
+    """Bảng audit_logs: Kiểm toán các thao tác bảo mật và quản trị nhạy cảm"""
     __tablename__ = "audit_logs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -36,7 +36,7 @@ class AuditLog(db.Model):
 
 
 class UserActivityLog(db.Model):
-    """Bảng user_activity_logs: Nhật ký làm việc — Ai dùng chức năng gì, kết quả ra sao (Mục 6.5 & 6.10)"""
+    """Bảng user_activity_logs: Nhật ký làm việc — Ai dùng chức năng gì, kết quả ra sao)"""
     __tablename__ = "user_activity_logs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP, JSONB, BIGINT, REAL
 from backend.app.extensions import db
 
 class Telemetry(db.Model):
-    """Bảng telemetry: Lưu trữ dữ liệu đo lường cảm biến theo chu kỳ (Mục 6.4)"""
+    """Bảng telemetry: Lưu trữ dữ liệu đo lường cảm biến theo chu kỳ"""
     __tablename__ = "telemetry"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -55,7 +55,7 @@ class Telemetry(db.Model):
 
 
 class DeviceEvent(db.Model):
-    """Bảng device_events: Sự kiện vòng đời & trạng thái quan trọng của thiết bị (Mục 6.4)"""
+    """Bảng device_events: Sự kiện vòng đời & trạng thái quan trọng của thiết bị"""
     __tablename__ = "device_events"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -84,7 +84,7 @@ class DeviceEvent(db.Model):
 
 
 class DeviceShadow(db.Model):
-    """Bảng device_shadows: Trạng thái mong muốn (desired) và báo cáo (reported) (Mục 6.4)"""
+    """Bảng device_shadows: Trạng thái mong muốn (desired) và báo cáo (reported)"""
     __tablename__ = "device_shadows"
 
     device_id = Column(String(64), ForeignKey("devices.device_id", ondelete="CASCADE"), primary_key=True)

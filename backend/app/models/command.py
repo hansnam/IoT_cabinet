@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP, JSONB, BIGINT
 from backend.app.extensions import db
 
 class Command(db.Model):
-    """Bảng commands: Lịch sử và trạng thái lệnh điều khiển thiết bị (Mục 6.4)"""
+    """Bảng commands: Lịch sử và trạng thái lệnh điều khiển thiết bị"""
     __tablename__ = "commands"
 
     command_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -59,7 +59,7 @@ class Command(db.Model):
 
 
 class CommandAttempt(db.Model):
-    """Bảng command_attempts: Nhật ký từng lần thử dispatch/ACK của lệnh (Mục 6.4)"""
+    """Bảng command_attempts: Nhật ký từng lần thử dispatch/ACK của lệnh"""
     __tablename__ = "command_attempts"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -79,7 +79,7 @@ class CommandAttempt(db.Model):
 
 
 class OutboxMessage(db.Model):
-    """Bảng outbox_messages: Transactional Outbox phục vụ gửi lệnh bền vững sang MQTT (Mục 6.4)"""
+    """Bảng outbox_messages: Transactional Outbox phục vụ gửi lệnh bền vững sang MQTT"""
     __tablename__ = "outbox_messages"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
