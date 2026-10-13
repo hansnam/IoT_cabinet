@@ -67,6 +67,9 @@ cp ../.env.example .env
 # Chạy database migration
 flask db upgrade
 
+# Nạp dữ liệu nền ban đầu (Roles, Permissions, Users demo, Thiết bị mẫu)
+flask seed
+
 # Khởi chạy API Server
 flask run --port 5000
 

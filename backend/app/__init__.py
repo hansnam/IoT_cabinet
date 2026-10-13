@@ -129,6 +129,13 @@ def create_app(config_name=None):
     # Đăng ký Blueprints (Sẽ được nạp dần ở Pha A, Pha B, Pha C)
     register_blueprints(app)
 
+    # Đăng ký CLI commands
+    @app.cli.command("seed")
+    def seed():
+        """Nạp dữ liệu nền ban đầu (Roles, Permissions, Users, Devices)"""
+        from backend.seed import run_seed
+        run_seed()
+
     return app
 
 def register_blueprints(app):
