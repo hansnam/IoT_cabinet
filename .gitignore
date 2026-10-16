@@ -72,3 +72,13 @@ firmware/**/build/
 *.bin
 *.hex
 *.elf
+
+# Tài liệu kế hoạch & đề xuất triển khai cá nhân
+Description/*KE_HOACH*
+Description/*DANH_GIA*
+docs/gemini_tv3/
+docs/POSTGRES_LOCAL_SETUP.md
+
+# Tài liệu bài giảng, sách tham khảo & đề bài
+*.pptx
+*.pdf

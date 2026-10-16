@@ -1,6 +1,8 @@
 # ĐẶC TẢ CHUNG V1.3 — IoT giám sát nhiệt độ và điều khiển thông gió tủ thiết bị
 
-Bản gốc: 30/09/2026. Rà soát và bổ sung: 09/10/2026. Nhóm: 4 người; giữ phân công TV1–TV4.
+Bản gốc: 30/09/2026. Rà soát và bổ sung: 09/10/2026. Chốt phạm vi TV3: **16/10/2026**. Nhóm: 4 người; giữ phân công TV1–TV4.
+
+**Quyết định đã chốt cho P0:** ba role ADMIN/OPERATOR/VIEWER + scope VIEW/OPERATE từng thiết bị; access JWT 15 phút + session PostgreSQL, frontend giữ token trong memory. Logout/khóa user/đổi hoặc reset password thu hồi phiên theo mục 5.2. Hết hạn hoặc reload phải login lại. **Hoãn refresh token, auth cookie/CSRF-cookie, re-auth, UI quản lý nhiều phiên và self activity logs sang EXT**. Giữ 27 bảng nền đã có, không xóa bảng/cột hoặc sửa migration cũ vì giản lược chức năng. Kế hoạch thực hiện: [TV3 cho Gemini](TV3_KE_HOACH_TRIEN_KHAI_CHO_GEMINI.md); căn cứ: [đối chiếu đề bài](DOI_CHIEU_DE_BAI_VA_DANH_GIA_TV3.md).
 
 V1.3 ưu tiên **P0: một ESP32 đo nhiệt độ/độ ẩm bằng DHT22, điều khiển quạt và hoàn thiện toàn bộ hệ thống web/backend/bảo mật**. **P1: node2 giám sát RPM** là khuyến nghị, chỉ triển khai sau khi P0 đạt nghiệm thu và còn thời gian/thiết bị. **P2: AI dự báo tình trạng quạt** là hướng phát triển có thiết kế sẵn.
 
@@ -8,7 +10,7 @@ Giữ MQTT contract v3 để không đổi topic khi thêm profile monitor; phi�
 
 ## 0. Đối chiếu đề bài và quyết định bổ sung
 
-Nguồn chuẩn: **ĐỀ BÀI ĐỒ ÁN KẾT THÚC HỌC PHẦN(3).pdf**,14 trang. Số trang tính từ đầu PDF. Mục4.2 trang3 yêu cầu ít nhất một thiết bị vật lý, khuyến nghị từ hai loại dữ liệu cảm biến và từ hai node cho nhóm4 người. DHT22 cung cấp hai loại dữ liệu nhiệt độ/độ ẩm; hai node không phải điều kiện hoàn thành P0.
+Nguồn chuẩn: [ĐỀ BÀI ĐỒ ÁN KẾT THÚC HỌC PHẦN.pdf](<ĐỀ BÀI ĐỒ ÁN KẾT THÚC HỌC PHẦN.pdf>),14 trang; đã đối chiếu bản trong repo ngày 16/10/2026. Số trang tính từ đầu PDF. Mục4.2 trang3 yêu cầu ít nhất một thiết bị vật lý, khuyến nghị từ hai loại dữ liệu cảm biến và từ hai node cho nhóm4 người. DHT22 cung cấp hai loại dữ liệu nhiệt độ/độ ẩm; hai node không phải điều kiện hoàn thành P0.
 
 | Yêu cầu trong PDF | Mức độ / vị trí | Quyết định V1.3 / phần triển khai |
 |---|---|---|
@@ -76,7 +78,7 @@ Người dùng: quản trị hệ thống và người vận hành tủ thiết 
 | Thư viện firmware | DHT sensor library của Adafruit + Adafruit Unified Sensor; PubSubClient; ArduinoJson; Preferences; adapter đếm xung PCNT hoặc ISR ngắn đã kiểm thử | Khóa phiên bản sau khi build thử. Wokwi có thể cần DHTesp cho cảm biến mô phỏng; không coi khác biệt mô phỏng là đổi hợp đồng firmware |
 | Mạng | Wi-Fi 2,4GHz, MQTT | Thiết bị cố định có nguồn; MQTT đi hai chiều |
 | Broker | Eclipse Mosquitto + Dynamic Security plugin | Có tài khoản riêng, ACL và thu hồi kết nối khi đang chạy |
-| Backend | Python + Flask; SQLAlchemy; Flask-Migrate; paho-mqtt; Flask-JWT-Extended cho access JWT; service riêng cho opaque refresh token | Một ứng dụng chung chia Blueprint; một worker MQTT |
+| Backend | Python + Flask; SQLAlchemy; Flask-Migrate; paho-mqtt; Flask-JWT-Extended cho access JWT + session PostgreSQL; P0 không refresh token | Một ứng dụng chung chia Blueprint; một worker MQTT |
 | Mật khẩu người dùng | argon2-cffi, Argon2id qua PasswordHasher | Mốc cấu hình tối thiểu: memory_cost=19456 KiB, time_cost=2, parallelism=1; đo thời gian trên laptop và tăng nếu phù hợp; không tự viết thuật toán băm |
 | DB | PostgreSQL 16, database `iot_cabinet` | DB duy nhất cho tích hợp, kiểm thử và bàn giao; không chia MySQL/SQLite/Firebase |
 | Frontend | React + Vite, JavaScript; React Router; Recharts; fetch | Web responsive; V1.3 polling API mỗi 2 giây để giảm độ phức tạp |
@@ -129,7 +131,7 @@ CommandService tạo lệnh, PermissionService tính quyền, ConfigService qu�
 - Broker/DB/API mất: node1 P0 vẫn AUTO; nếu có P1, node2 vẫn đo TACH và cảnh báo local từ demand/heartbeat có dây, dùng cấu hình đã áp dụng. DB mất thì worker không xác nhận đã lưu; profile QoS0 V1.3 có thể mất bản tin, phải biểu diễn khoảng trống. Broker lưu persistence cho retained/config security, không phải kho lưu mọi telemetry.
 - Workers ghi transaction ngắn; acquire row lock theo thứ tự cố định. Mở rộng nhiều worker phải thêm lease/partition theo device_id, chống đánh giá incident đồng thời; không chỉ tăng số container.
 - Backup gồm PostgreSQL, cấu hình Dynamic Security, CA/config, firmware config; secret backup được bảo vệ. Kiểm thử restore trên môi trường tách biệt. API `/health/live` và `/health/ready`; readiness không thành công khi DB hoặc worker thiết yếu chưa sẵn sàng.
-- TLS terminate cho web ở reverse proxy; broker tự phục vụ MQTTS. Compose network riêng cho DB/backend; frontend bundle served cùng origin để đơn giản hóa cookie/CORS.
+- TLS terminate cho web ở reverse proxy; broker tự phục vụ MQTTS. Compose network riêng cho DB/backend; frontend bundle served cùng origin cho Origin/CORS và API Bearer; P0 không cookie xác thực.
 
 ### 2.3 Giải thích lựa chọn công nghệ và phương án thay thế (bắt buộc theo PDF)
 
@@ -150,7 +152,7 @@ PDF mục6 trang9 yêu cầu: **“Mỗi lựa chọn kỹ thuật quan trọng 
 | SQLAlchemy/Alembic | Models/repositories/schema version | Giữ một migration source giảm schema lệch thay vì mỗi người SQL riêng | FK/CHECK vẫn cần; test empty DB/upgrade |
 | React+REST+poll2s | Dashboard/quản trị cùng origin | SSE/WebSocket push là EXT; polling giảm công scope/reconnect/resume P0 | Không tải toàn history mỗi tick; đo p95, chưa gọi hard real-time |
 | RBAC+device scope | ADMIN/OPERATOR/VIEWER và VIEW/OPERATE | Role đơn thuần không chặn đọc thiết bị ngoài scope; UI ẩn nút chưa bảo vệ API | SQL lists/exports và test403/404; MQTT ACL theo ID |
-| JWT+session+opaque refresh | Access ngắn hạn, sid check, rotation/revoke | JWT stateless đơn thuần khó thu hồi ngay; sid check để logout/lock có hiệu lực | Secure/HttpOnly/CSRF/TTL/idle/token hashes/re-auth có test |
+| JWT+session PostgreSQL | Access 15 phút, sid/ver check, revoke server-side | Bỏ refresh để giảm cookie/rotation/race/multi-tab; session DB để logout/lock có hiệu lực ngay | Token memory, HTTPS, expiry/revoke có test; reload/hết hạn phải login lại, không sliding timeout |
 | Argon2id/TLS/ACL | Bảo vệ password/đường truyền/topic | Không tự viết hash; CA verify hostname; credential mỗi node | Đo hash cost, SAN/cert, reconnect deny; không setInsecure |
 | Outbox+ACK+operations | DB và broker không có transaction chung | Durable jobs để retry/reconcile sau crash; publish ngay chưa đủ phục hồi |202/PUBACK/APPLIED khác nhau; retry cùng ID, dedup, crash tests |
 | Nhật ký chức năng+audit | Ai dùng chức năng gì và kiểm toán nhạy cảm | Structured logs debug cần thêm bảng business log để query theo user/function | Backend xác định actor/result, append-only/redaction; không log mỗi poll |
@@ -287,41 +289,39 @@ Với device permission: `allow = user ACTIVE + session hợp lệ + role chứa
 |---|---|---|---|---|
 | `device.read`, `telemetry.read`, `telemetry.export`, `command.read`, `alert.read`, `activity.read` | Có | Có | Có | VIEW hoặc OPERATE trên device |
 | `device.control`, `device.configure`, `alert.acknowledge`, `alert.resolve` | Có | Có | Không | OPERATE; trạng thái cho phép |
-| `user.read`, `user.create`, `user.update`, `user.lock`, `user.role.assign`, `user.password.reset` | Có | Không | Không | Toàn hệ thống; re-auth cho thao tác nhạy cảm |
+| `user.read`, `user.create`, `user.update`, `user.lock`, `user.role.assign`, `user.password.reset` | Có | Không | Không | Session hợp lệ, permission hiện tại và audit; bảo vệ admin ACTIVE cuối |
 | `device.register`, `device.provision`, `device.activate`, `device.access.manage`, `device.lifecycle.manage`, `device.credential.rotate` | Có | Không | Không | Quản trị; không cho user tự nâng quyền |
 | `location.manage`, `device_group.manage` | Có | Không | Không | Nhóm/vị trí phục vụ tổ chức, chưa kế thừa quyền |
 | `fan.read` (P1) | Khi bật P1 | Khi bật P1 | Khi bật P1 | VIEW cả hai node của binding |
 | `fan.maintain` (P1) | Khi bật P1 | Khi bật P1 | Không | OPERATE cả hai node, note/nhãn có audit |
 | `fan.manage` (P1) | Khi bật P1 | Không | Không | Asset/binding/replacement |
 | `audit.read` | Có | Không | Không | Audit bảo mật/quản trị chỉ admin |
-| `user_activity.read` | Có | Không | Không | Nhật ký chức năng mọi user, đã redaction |
-| `user_activity.self.read` | Có | Có | Có | Chỉ nhật ký chức năng bản thân |
-| `profile.update`, `password.change`, `session.self.manage` | Có | Có | Có | Chỉ bản thân |
-| `session.admin.revoke` | Có | Không | Không | Session user khác; ghi audit |
+| `user_activity.read` | Có | Không | Không | P0 nhật ký thao tác chính, admin đọc, đã redaction |
+| `profile.update`, `password.change` | Có | Có | Có | Chỉ bản thân; đổi password xác minh old_password |
+| `user_activity.self.read`, `session.self.manage`, `session.admin.revoke` | Hoãn EXT | Hoãn EXT | Hoãn EXT | Có thể giữ mã seed cũ; P0 không tạo endpoint/UI theo các quyền dự phòng này |
 | `firmware.manage`, `ota.deploy`, `ai.model.manage`, `automation.manage` | Sau khi bật EXT | Không mặc định | Không | Chỉ seed permission khi triển khai module; target cần scope/safety |
 
 `VIEW` cho phép nhóm read/export; `OPERATE` bao gồm VIEW và bốn thao tác vận hành. Operator có VIEW chỉ xem; Viewer được gán nhầm OPERATE vẫn không điều khiển. Default deny cho permission không tồn tại/không được gán. Endpoint list, statistics, export, alerts và activity phải lọc scope tại SQL; không tải toàn DB rồi lọc ở frontend.
 
 `PermissionService.require(permission, device_id=None)` và `visible_devices_query(user)` do TV3 cung cấp; TV2/TV4 gọi ở mọi API/service nhạy cảm. Dữ liệu ID chưa được cấp scope trả 404 để không lộ tồn tại; đã có VIEW nhưng thiếu quyền hành động trả 403. Kiểm thử Viewer control trên device được VIEW phải trả 403.
 
-### 5.2 Login, access JWT và refresh token
+### 5.2 Login, access JWT và session DB — phạm vi đã chốt P0
 
 1. Admin tạo tài khoản V1.3; không cần public registration. Bootstrap admin từ biến môi trường/script một lần, không credential mặc định. Mật khẩu Argon2id, salt/tham số do thư viện quản lý. Mật khẩu 12–128 ký tự, không cắt ngầm và không log. Cờ `must_change_password` cho mật khẩu tạm.
 2. Login thành công tạo `auth_sessions.id` mới; access JWT 15 phút có `sub=user_id`, `sid`, `jti`, `iat`, `exp`, `iss`, `aud`, `ver=users.token_version`. Khóa ký lấy từ secret môi trường, validate allowlist thuật toán/issuer/audience; không lấy role claim làm nguồn quyền hiện tại.
-3. Refresh là **opaque random token ít nhất 32 byte**, không phải JWT. DB chỉ lưu SHA-256 digest trong `refresh_tokens`; băm nhanh phù hợp token entropy cao, không dùng cho mật khẩu người dùng. Session tuyệt đối 8 giờ, idle 30 phút; token refresh không kéo dài tuyệt đối 8 giờ. Đây là cấu hình mô hình, có thể điều chỉnh qua env.
-4. Access token giữ trong memory frontend và gửi Authorization Bearer. Refresh đặt cookie host-only `HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth`, TTL không vượt hạn session. Không lưu token trong localStorage/sessionStorage/URL. Reload dùng refresh một lần để có access token mới.
-5. Cookie refresh đi kèm cookie CSRF đọc được, Secure/SameSite=Strict/Path=/, chứa nonce ký HMAC và ràng buộc sid; request refresh/logout có `X-CSRF-Token` trùng cookie và chữ ký/sid hợp lệ. Dùng thư viện ký đã kiểm thử, không chỉ so hai giá trị không ký. Login/refresh/logout kiểm tra Origin theo allowlist; web cùng origin. Cookie CSRF không phải credential đăng nhập. Không bật CORS `*` với credentials.
-6. Refresh transaction lock session và refresh row; kiểm tra chưa dùng/thu hồi/hết hạn, mark used và tạo token kế tiếp + JWT trong cùng transaction. Token cũ chỉ dùng một lần; reuse của token đã used **thu hồi cả session và token family**, ghi security audit. Cookie nhận token mới sau commit. Frontend single-flight refresh, phối hợp tab bằng Web Locks/BroadcastChannel; mất response sau rotation có thể buộc login lại, không phát lại token cũ như credential còn hợp lệ.
-7. API bảo vệ luôn kiểm tra session/user trong DB, revoked/idle/absolute timeout/token_version và quyền hiện tại. Polling cũng là request activity; idle này không đo việc người dùng có di chuột hay không. Throttle last_seen write tối đa một lần/phút, vẫn kiểm tra timeout theo thời gian server.
-8. Logout/revoke session vô hiệu hóa cả access theo sid lẫn toàn bộ refresh của session, xóa cookies. Logout all/đổi mật khẩu/reset mật khẩu/LOCKED tăng token_version và revoke tất cả session. Đổi role/gán quyền có hiệu lực ngay vì quyền đọc DB; worker recheck trước dispatch.
-9. Tối đa 5 session chưa hết hạn/user; login thứ sáu thu hồi session cũ nhất trong transaction. Có trang liệt kê/revoke phiên của mình; IP/user_agent không phải yếu tố xác thực cứng và không được dùng thay token.
+3. Session DB có `expires_at` cùng mốc hết hạn access JWT: **15 phút từ login**, tính UTC server; không kéo dài khi polling hoặc dùng chức năng. `last_seen_at` khởi tạo lúc login, P0 không dùng idle timeout hoặc touch mỗi request. Không phát refresh token, không ghi vào refresh_tokens, không tạo auth cookie hoặc silent refresh.
+4. Access token giữ trong memory frontend và gửi Authorization Bearer. Không lưu token trong localStorage/sessionStorage/URL hoặc cookie. Reload trang, mở tab mới hoặc token hết hạn phải login lại; UI ghi rõ giới hạn này. Frontend không tự retry mutation khi nhận401.
+5. API bảo vệ luôn kiểm user/session trong DB: user ACTIVE, sid thuộc đúng sub, session chưa revoked/chưa hết hạn, ver khớp user và session, role/grant hiện tại. DB lỗi thì fail closed503. Không lấy role từ JWT làm quyền hiện tại. Login/logout yêu cầu Origin thuộc AUTH_ALLOWED_ORIGINS, thiếu/null/sai trả403; công cụ test chủ động gửi Origin. HTTPS và CORS allowlist bảo vệ luồng web; chỉ Bearer từ header được dùng để xác thực P0, CORS không thay permission. Không bật CORS `*` hoặc tự thêm credentials cookie.
+6. Logout dùng bearer hợp lệ, revoke session hiện tại và ghi audit/activity cùng transaction; frontend xóa token memory sau response, hoặc xóa memory và về login khi token đã hết hạn. Đổi password/reset password/LOCKED/ARCHIVED tăng token_version và revoke tất cả session của user trong cùng transaction. Mở khóa không hồi sinh token cũ. Đổi role/grant có hiệu lực ở request/dispatch kế vì kiểm DB.
+7. P0 không có giới hạn tối đa5 session, session list, revoke từng session, logout-all hoặc reauthenticate endpoint/UI. Login mỗi lần tạo sid mới; không chia sẻ access token giữa tab. Các tiện ích này chỉ làm khi bật EXT có contract/test riêng.
+8. ADMIN tạo/đổi role/status/reset password, cấp credential và decommission cần session hợp lệ + đúng permission + audit; P0 không yêu cầu re-auth5 phút. Đổi password bản thân vẫn phải xác minh old_password. Chặn mọi thay đổi role/status làm mất admin ACTIVE cuối cùng, kể cả thay đổi user khác; serialize các đường thay đổi này để tránh race.
 
-Thao tác cấp credential, đổi role, reset mật khẩu, revoke toàn bộ và decommission yêu cầu nhập lại mật khẩu trong 5 phút gần nhất (`reauthenticated_at`). Không trả refresh token/password_hash qua API JSON đọc. ADMIN không tự khóa/hạ quyền khiến hệ thống mất admin ACTIVE cuối cùng; serialize thao tác thay admin để tránh hai request đồng thời vượt kiểm tra.
+Session metadata còn được command/audit/activity tham chiếu phải giữ theo retention; không xóa row khi logout hoặc token hết hạn. Password_hash và token thô không xuất qua endpoint đọc. Refresh/cookie-CSRF/re-auth/nhiều phiên là EXT ở14.4; không tự tái tạo chúng trong P0.
 
 ### 5.3 Chống đoán mật khẩu, reset và contract HTTP
 
 - Login sai trả thông báo chung, không lộ username tồn tại; validate độ dài trước hash. Rate limit ban đầu: 5 lần sai/username/15 phút, 20 lần sai/IP/15 phút, cooldown 15 phút; counters/log ở PostgreSQL dùng khóa/giao dịch để không mất khi tăng API process. Không auto biến status thành LOCKED vĩnh viễn. Có audit thành công/thất bại và quản trị mở khóa.
-- V1.3 reset qua ADMIN + re-auth, mật khẩu tạm chuyển giao riêng và `must_change_password=true`; không gửi email tự động khi chưa có module. Token reset tự phục vụ, email verification, MFA là EXT với schema ở mục 14.4.
+- V1.3 reset qua ADMIN có permission và session hợp lệ, mật khẩu tạm chuyển giao riêng và `must_change_password=true`; không echo password trong JSON, không email tự động hoặc re-auth P0. Token reset tự phục vụ, email verification, MFA là EXT ở14.4.
 - 401: thiếu/sai/hết hạn/revoked credential; 403: thiếu khả năng hành động; 404: ID ngoài scope; 409: trạng thái/version/idempotency xung đột; 429: rate limit; 503: dependency chưa sẵn sàng.
 - Account đang yêu cầu đổi mật khẩu chỉ gọi change-password/profile/logout; không gửi lệnh cho tới khi hoàn tất. API nhạy cảm đặt Cache-Control: no-store; security header ở reverse proxy, UI không render HTML thô từ device message.
 
@@ -335,7 +335,7 @@ Thao tác cấp credential, đổi role, reset mật khẩu, revoke toàn bộ v
 - Tất cả timestamp là TIMESTAMPTZ UTC; seq/uptime BIGINT; số đo REAL/DOUBLE PRECISION phải hữu hạn; độ ẩm 0–100%, nhiệt DHT22 -40..80°C. JSONB chỉ cho payload/metadata mở rộng; không nhét toàn bộ quan hệ vào JSON.
 - Trong bảng dưới: PK khóa chính, FK khóa ngoại, UQ duy nhất, `?` nullable; trường không có `?` là NOT NULL trừ khi ghi rõ. `created_at` mặc định server now(), updated_at do ứng dụng cập nhật. Enum dùng TEXT + CHECK.
 - P0 CORE có **27 bảng** (26 nền+1 user_activity_logs mới); P1 tùy chọn thêm4 bảng6.9, tổng31 khi bật P1, chưa tính OTA/AI. Bảng bridge/attempt/event thường nhỏ. EXT chỉ tạo migration khi triển khai chức năng tương ứng. TV2 review và phối hợp TV3 phần IAM.
-- Bảng6.2–6.5 là P0. Dictionary mô tả cả đích P1: fan_binding_id/fan_id và tham số RPM nullable, P0 luôn null, chưa có FK tới bảng P1. P0 chưa tạo fans/bindings/observations/maintenance, có CHECK trường mở rộng null. P1 bỏ CHECK, thêm4 bảng+FK, bật capability/profile/rule/API; không tạo FK trỏ bảng chưa tồn tại.
+- Bảng6.2–6.5 giữ schema nền hiện có, không có nghĩa mọi tiện ích đều phải chạy P0. `refresh_tokens` giữ để tương thích migration nhưng P0 không sử dụng; `auth_sessions.reauthenticated_at` để null. Không thêm ràng buộc/migration phục vụ refresh trong P0. Dictionary mô tả cả đích P1: fan_binding_id/fan_id và tham số RPM nullable, P0 luôn null, chưa có FK tới bảng P1. P0 chưa tạo fans/bindings/observations/maintenance, có CHECK trường mở rộng null. P1 bỏ CHECK, thêm4 bảng+FK, bật capability/profile/rule/API; không tạo FK trỏ bảng chưa tồn tại.
 - P0 chỉ activate CONTROLLER, config/telemetry binding null vẫn chạy thermal rules/AUTO; không chờ monitor/binding mới nghiệm thu controller. Fan permissions/monitor seed chỉ khi bật P1.
 - ON DELETE RESTRICT cho device/user/config/command/alert và lịch sử; archive user, decommission device. Có thể xóa bridge khi thu hồi grant, nhưng audit phải lưu snapshot actor/target trước. Không cascade xóa lịch sử khi khóa user/device.
 
@@ -348,11 +348,11 @@ Thao tác cấp credential, đổi role, reset mật khẩu, revoke toàn bộ v
 | `permissions` | id UUID PK; code VARCHAR(80); scope_type TEXT; description TEXT; created_at | UQ code; GLOBAL/DEVICE/SELF; mã cố định ở mục 5.1 |
 | `role_permissions` | role_id UUID FK roles; permission_id UUID FK permissions; granted_by UUID? FK users; created_at | PK(role_id,permission_id); index(permission_id); chỉ grant, không có deny override V1.3 |
 | `user_roles` | user_id UUID FK users; role_id UUID FK roles; assigned_by UUID? FK users; created_at | PK(user_id,role_id); **UQ(user_id) ở V1.3** để mỗi user một role; index(role_id); user ACTIVE bắt buộc có một role trong service transaction |
-| `auth_sessions` | id UUID PK; user_id UUID FK users; token_version INT; created_at; last_seen_at; expires_at; revoked_at?; revoke_reason TEXT?; ip_address INET?; user_agent VARCHAR(512)?; reauthenticated_at TIMESTAMPTZ? | index(user_id,created_at DESC); index(expires_at); expires_at>created_at; sid chính là id, không có plaintext JWT/refresh; idle dựa last_seen_at |
-| `refresh_tokens` | id UUID PK; session_id UUID FK auth_sessions; token_hash CHAR(64); parent_token_id UUID?; replaced_by_token_id UUID?; issued_at; expires_at; used_at?; revoked_at?; reuse_detected_at? | UQ token_hash; UQ(session_id,id) để FK self composite `(session_id,parent_token_id/replaced_by_token_id)` không cross family; UQ partial(session_id) WHERE used_at IS NULL AND revoked_at IS NULL; index(session_id,issued_at); expires_at>issued_at; giữ token đã used đến hết session + retention để phát hiện reuse |
+| `auth_sessions` | id UUID PK; user_id UUID FK users; token_version INT; created_at; last_seen_at; expires_at; revoked_at?; revoke_reason TEXT?; ip_address INET?; user_agent VARCHAR(512)?; reauthenticated_at TIMESTAMPTZ? | index(user_id,created_at DESC); index(expires_at); expires_at>created_at; sid=id; expires_at cùng JWT exp15 phút; P0 last_seen_at=created_at, reauthenticated_at=null; không idle/sliding timeout, không plaintext JWT |
+| `refresh_tokens` — dự phòng EXT | Giữ nguyên cột/index/constraint hiện có trong model và migration nền | P0 không đọc/ghi bảng này, không tạo token/route/UI; không drop bảng hoặc sửa migration cũ. Composite FK cùng family, rotation/reuse/retention chỉ thiết kế và migrate khi chọn EXT |
 | `login_attempts` | id UUID PK; username_key CHAR(64); ip_key CHAR(64); user_id UUID? FK users; success BOOL; failure_code TEXT?; occurred_at; request_id UUID | username_key/ip_key HMAC với secret riêng; index(username_key,occurred_at), index(ip_key,occurred_at); retention 7 ngày; limit service khóa theo keys trước count/insert để request đồng thời không vượt limit |
 
-Hash mật khẩu Argon2id, hash token random SHA-256, HMAC định danh log là ba mục đích khác nhau. Không dùng password_hash để làm broker password hoặc JWT signing key. IP/user-agent trên session là dữ liệu nhạy cảm hạn chế, xóa/anonymize theo retention.
+Password dùng Argon2id; HMAC định danh login_attempts dùng secret riêng, không dùng password_hash làm broker password hoặc JWT signing key. P0 không có refresh token để băm. IP/user-agent trên session là dữ liệu nhạy cảm hạn chế, xóa/anonymize theo retention; không có session metadata API cho user khác trong P0.
 
 ### 6.3 Tổ chức và thiết bị (8 bảng CORE)
 
@@ -405,9 +405,6 @@ CREATE UNIQUE INDEX uq_active_device_credential
   ON device_credentials(device_id) WHERE status = 'ACTIVE';
 CREATE UNIQUE INDEX uq_live_alert
   ON alerts(device_id, rule_id) WHERE status <> 'RESOLVED';
-CREATE UNIQUE INDEX uq_active_refresh
-  ON refresh_tokens(session_id)
-  WHERE used_at IS NULL AND revoked_at IS NULL;
 CREATE INDEX ix_telemetry_device_time ON telemetry(device_id, received_at DESC);
 CREATE INDEX ix_device_access_user ON device_access(user_id, device_id);
 
@@ -422,12 +419,12 @@ ORDER BY t.received_at DESC LIMIT :page_size;
 
 Trước SELECT vẫn phải kiểm tra role permission. Aggregate/export/GET command và alert theo ID đều đi qua cùng scope. SQLAlchemy bind params, không ghép SQL từ user input; sort field và metric từ allowlist.
 
-Các transaction cần lock: refresh rotation; phân quyền/last-admin; tăng config version (`SELECT devices FOR UPDATE`, compare base_version, insert config + command/outbox); nhận telemetry update latest; mở/clear incident; cấp device_command_seq bằng devices.last_command_seq tăng trong row lock và dispatch theo device. Auth/session check với commands.requesting_session_id phải bảo đảm session.user_id=requested_by; operations.credential_id cùng device bằng FK composite/service; configs/alerts/credentials/commands không tham chiếu chéo device. DB unique constraint là lớp cuối chống race; bắt conflict trả mã rõ ràng, không bỏ validation.
+Các transaction cần lock: đổi password/lock user/revoke với login để không cấp phiên mới dựa ver/password cũ; phân quyền/last-admin; thay toàn bộ device grants; tăng config version (`SELECT devices FOR UPDATE`, compare base_version, insert config + command/outbox); nhận telemetry update latest; mở/clear incident; cấp device_command_seq bằng devices.last_command_seq tăng trong row lock và dispatch theo device. Auth/session check với commands.requesting_session_id phải bảo đảm session.user_id=requested_by; operations.credential_id cùng device bằng FK composite/service; configs/alerts/credentials/commands không tham chiếu chéo device. DB unique constraint là lớp cuối chống race; bắt conflict trả mã rõ ràng, không bỏ validation.
 
 ### 6.7 Dung lượng, retention, backup và seed
 
 - P0 controller5s: **17.280 telemetry/ngày,518.400 dòng/30 ngày**. P1 monitor2s: tổng60.480/ngày,1.814.400/30 ngày; observations thêm43.200/ngày. Giả định24h liên tục, chưa gồm indexes/WAL/events/logs.
-- Raw90 ngày; events/commands/alerts hết học kỳ; audit180 ngày; user_activity_logs90 ngày; login_attempts7 ngày; refresh hết hạn thêm7 ngày. Session anonymize IP/UA sau7 ngày nhưng giữ sid metadata tới khi command/audit/activity FKs hết retention; xóa logs hết hạn trước session. Runtime không UPDATE/DELETE audit/activity; retention role riêng.
+- Raw90 ngày; events/commands/alerts hết học kỳ; audit180 ngày; user_activity_logs90 ngày; login_attempts7 ngày. Refresh P0 không dùng nên không có retention job mới. Session anonymize IP/UA sau7 ngày nhưng giữ sid metadata tới khi command/audit/activity FKs hết retention; xóa logs hết hạn trước session. Runtime không UPDATE/DELETE audit/activity; retention role riêng.
 - P1 identity/binding/maintenance giữ dài hơn raw; observations90 ngày hoặc archive dataset trước purge. P0 chưa đo RPM không điền0 làm dữ liệu AI.
 - Không partition ngay; đo bytes/index/WAL/EXPLAIN khi cần. Partition unique chứa partition key nên thiết kế dedup global hoặc retention/key trước đổi UQ(device_id,boot_id,seq).
 - App DB role không superuser/DDL; migration/retention roles riêng. CORE scope filtering có test; RLS là EXT, DB không tự biết user nếu chung app login.
@@ -509,7 +506,7 @@ user_activity_logs phục vụ màn **Nhật ký làm việc**: thời gian, ng�
 
 | Hiển thị mẫu | function_key / action / outcome |
 |---|---|
-| Admin A mở danh sách người dùng | users.list / VIEW / SUCCESS |
+| Admin A tạo tài khoản B | users.create / CREATE / SUCCESS |
 | Admin A cấp OPERATOR cho B | users.role.assign / UPDATE / SUCCESS |
 | Admin A gửi bật quạt cabinet-001 | devices.command.create / CONTROL / ACCEPTED, command_id; chưa nói quạt đã quay |
 | Admin A khóa node, broker đang xử lý | devices.lock / REVOKE / ACCEPTED, operation_id |
@@ -518,11 +515,11 @@ user_activity_logs phục vụ màn **Nhật ký làm việc**: thời gian, ng�
 | User A login/logout | auth.login hoặc auth.logout / LOGIN hoặc LOGOUT / SUCCESS |
 
 - UserActivityService ghi từ endpoint/service thực đã authenticate/authorize. function_key catalog allowlist, actor từ session. Không cho frontend tự POST actor/summary/outcome làm bằng chứng dùng chức năng.
-- Ghi mutation/login/logout/export và lần dùng chức năng đọc chính (users/devices/history/config). Read cùng user+function+target trong30s chỉ append lần đầu, advisory lock khi dedup đồng thời. Không log mỗi poll dashboard2s, healthcheck, đọc nhật ký hoặc silent refresh; tránh tự sinh log và bùng dung lượng.
+- P0 chỉ ghi mutation quan trọng, login/logout và export; không ghi mỗi lần đọc/mở màn hình. Không log poll dashboard2s, healthcheck hoặc đọc nhật ký; không có read dedup30s hay activity tracking pipeline.
 - SUCCESS/ACCEPTED mutation: business data+audit cần thiết+activity cùng transaction. DENIED/FAILED: rollback business rồi transaction log riêng. Không ghi SUCCESS nếu commit thất bại.
 - Async job: dòng USER ACCEPTED liên kết command/operation ID; UI tra kết quả từ bảng nghiệp vụ. Append SYSTEM completion nếu cần dùng action/function khác+correlation_id, không sửa dòng cũ hoặc coi202/PUBACK là fan quay.
-- Append-only runtime, không API sửa/xóa; mutation quan trọng chưa ghi log được thì không commit. Read-log lỗi có structured error/metric để phát hiện thiếu, không là truth kết quả nghiệp vụ.
-- ADMIN user_activity.read xem tất cả; role khác chỉ user_activity.self.read xem bản thân. Operator/viewer không đọc admin logs; target ngoài scope hiện tại được redaction cả filters/count/export, không lộ metadata vừa revoke.
+- Append-only runtime, không API sửa/xóa; mutation quan trọng chưa ghi log được thì không commit. Log đọc không nằm trong P0; không dựng thêm dịch vụ tracking.
+- P0 chỉ ADMIN có user_activity.read đọc màn nhật ký cơ bản và audit.read đọc audit; OPERATOR/VIEWER không có API self activity. Device activity từ events/commands/alerts vẫn cho các role đọc theo scope. Self-history và redaction theo scope mới chỉ làm khi bật EXT.
 - Metadata whitelist command_id/operation_id/changed_field_names/HTTP status/duration; không raw body/password/token/credential/cookie/Authorization/email nhạy cảm. Summary template server, UI escape.
 - Retention90 ngày/index user-function-time-outcome. Nhật ký là lịch sử dùng ứng dụng, không thay commit GitHub/bảng phân công/bằng chứng đóng góp đồ án.
 
@@ -534,24 +531,19 @@ JSON snake_case; UTC ISO8601. Thành công `{ "data": ... }`; list thêm `meta` 
 
 | Method + endpoint | Contract chính | Quyền / chủ trì |
 |---|---|---|
-| POST `/auth/login` | username/password; access_token/expires_in=900/user; set refresh + CSRF cookies | Rate limited; TV3 |
-| POST `/auth/refresh` | Cookie opaque refresh + X-CSRF-Token; rotate; trả access mới | Session hợp lệ; TV3 |
-| POST `/auth/logout` | Revoke session hiện tại; xóa cookie; chấp nhận access bearer hoặc refresh+CSRF khi access hết hạn | TV3 |
-| POST `/auth/logout-all` | Revoke mọi session, tăng token_version | Bản thân + re-auth; TV3 |
-| POST `/auth/reauthenticate` | password; cập nhật session.reauthenticated_at, không trả password | Bản thân; TV3 |
-| GET/PATCH `/auth/me` | Hồ sơ, role, permissions hiện tại; PATCH full_name | Self; TV3 |
+| POST `/auth/login` | username/password; data chứa access_token/expires_in=900/user; session expires cùng JWT; không Set-Cookie | Rate limited; TV3 |
+| POST `/auth/logout` | Bearer hợp lệ; revoke session hiện tại + audit/activity; frontend xóa memory. Token hết hạn trả401 và UI về login | TV3 |
+| GET/PATCH `/auth/me` | Hồ sơ, role, permissions P0 đang hỗ trợ; không mã EXT dự phòng; PATCH full_name | Self; TV3 |
 | POST `/auth/change-password` | old_password/new_password; revoke tất cả, login lại | Self; TV3 |
-| GET `/auth/sessions` | Các phiên bản thân, masked IP/UA, hạn và current flag | Self; TV3 |
-| DELETE `/auth/sessions/{sid}` | Revoke session bản thân; nếu current thì logout | Self; TV3 |
 | GET/POST `/users` | Admin list/create; create nhận role_code, không permissions tùy ý | user.read/create; TV3 |
 | PATCH `/users/{id}` | full_name/status; không nhận password_hash/token_version qua mass assignment | user.update/lock; TV3 |
-| PUT `/users/{id}/role` | role_code, re-auth, giữ admin ACTIVE cuối | user.role.assign; TV3 |
-| POST `/users/{id}/reset-password` | Re-auth admin, password tạm, revoke all, must_change_password | user.password.reset; TV3 |
-| POST `/users/{id}/revoke-sessions` | Revoke mọi phiên user đích | session.admin.revoke + re-auth; TV3 |
-| GET `/roles`, GET `/permissions` | Catalog seed, read-only V1.3; không UI chỉnh custom role | Admin; TV3 |
+| PUT `/users/{id}/role` | role_code cố định, giữ admin ACTIVE cuối; permission mới có hiệu lực ở request kế | user.role.assign; TV3 |
+| POST `/users/{id}/reset-password` | Admin nhận temporary_password qua body, không echo; revoke mọi session, must_change_password=true | user.password.reset; TV3 |
+| GET `/roles`, GET `/permissions` | Catalog read-only phần P0 đang hỗ trợ, không mã EXT dự phòng; không UI chỉnh custom role | Admin có user.read; TV3 |
 | GET `/audit-logs` | Filter actor/action/time/request_id; pagination và detail redaction | audit.read, ADMIN; TV3 |
-| GET `/user-activity-logs` | actor/function/action/outcome/target/from/to/cursor, summary/correlation; không sửa/xóa | user_activity.read, ADMIN; TV3+TV4 |
-| GET `/me/activity-logs` | Chỉ actor bản thân, target redaction theo scope hiện tại | user_activity.self.read; TV3 |
+| GET `/user-activity-logs` | Admin lọc actor/function/action/outcome/from/to; page/page_size/total; summary, link command/operation; không sửa/xóa | user_activity.read, ADMIN; TV3+TV4 |
+
+**Hoãn EXT, không đăng ký route P0:** POST `/auth/refresh`, `/auth/logout-all`, `/auth/reauthenticate`; GET `/auth/sessions`; DELETE `/auth/sessions/{sid}`; POST `/users/{id}/revoke-sessions`; GET `/me/activity-logs`. Có thể giữ permission codes dự phòng trong seed, nhưng chúng không mở route hoặc UI P0. Việc khóa/reset/đổi password vẫn tự revoke mọi session bằng helper nội bộ, không cần endpoint quản lý phiên riêng.
 
 ### 7.2 Thiết bị, dữ liệu, cấu hình, lệnh và cảnh báo
 
@@ -561,12 +553,12 @@ JSON snake_case; UTC ISO8601. Thành công `{ "data": ... }`; list thêm `meta` 
 | PUT `/device-groups/{id}/members` | Danh sách device_ids; validate mọi ID; không tự cấp quyền | device_group.manage; TV2 |
 | GET/POST `/devices` | List scope; admin đăng ký ID do server cấp, REAL/SIMULATED | device.read/register; TV2 |
 | GET/PATCH `/devices/{id}` | Chi tiết; admin đổi name/location/owner theo allowlist | device.read/lifecycle.manage; TV2 |
-| POST `/devices/{id}/provision` | Re-auth, disabled client+ACL; broker credential trả **một lần**, no-store; lỗi trả operation_id | device.provision; TV2+TV3 |
+| POST `/devices/{id}/provision` | Admin session hợp lệ, disabled client+ACL; broker credential trả **một lần**, no-store; lỗi trả operation_id | device.provision; TV2+TV3 |
 | POST `/devices/{id}/activate` | Operation durable; ACTIVE sau broker enable xác nhận | device.activate; TV2+TV3 |
 | GET/PUT `/devices/{id}/access` | Admin grant user/access_level/expiry; không role override | device.access.manage; TV3+TV2 |
 | POST `/devices/{id}/maintenance` | begin/end/note, ghi event; kiểm soát lifecycle | device.lifecycle.manage; TV2 |
-| POST `/devices/{id}/lock`, `/unlock`, `/decommission` | Operation_id + status; lock deny backend ngay; broker phải xác nhận; decommission re-auth | device.lifecycle.manage; TV2+TV3 |
-| POST `/devices/{id}/credentials/rotate` | Re-auth; revoke old; new secret một lần; planned reprovision | device.credential.rotate; TV3+TV2 |
+| POST `/devices/{id}/lock`, `/unlock`, `/decommission` | Admin session + permission + audit; operation_id/status; lock deny backend ngay; broker phải xác nhận | device.lifecycle.manage; TV2+TV3 |
+| POST `/devices/{id}/credentials/rotate` | Admin session + permission + audit; revoke old; new secret một lần; planned reprovision | device.credential.rotate; TV3+TV2 |
 | GET `/device-operations/{id}` | Phase/status/error, không secret; audit | Admin; TV2 |
 | GET `/devices/{id}/latest` | Latest theo profile: nhiệt/ẩm hoặc RPM/demand/fan_state, stale, source, states, desired/applied version, received/measured times | telemetry.read; TV2 |
 | GET `/devices/{id}/telemetry` | from/to/metric/source/page; received_at mặc định, event-time tùy chọn explicit | telemetry.read; TV2 |
@@ -594,7 +586,7 @@ JSON snake_case; UTC ISO8601. Thành công `{ "data": ... }`; list thêm `meta` 
 | POST `/fans/{id}/bindings` | Controller/monitor IDs, config snapshots, pending→active sau applied | fan.manage; TV2 |
 | GET `/fans/{id}/observations`, `/fans/{id}/statistics` | Ghép nhiệt/ẩm/RPM có provenance/gaps, không lộ node ngoài scope | fan.read; TV2 |
 | GET/POST `/fans/{id}/maintenance-events` | Inspection/cause/label/evidence; không tự gán nhãn AI | fan.read / fan.maintain; TV2+TV4 |
-| POST `/fans/{id}/replace` | Close binding/retire fan cũ, tạo asset mới và config có binding mới | fan.manage + re-auth; TV2 |
+| POST `/fans/{id}/replace` | Close binding/retire fan cũ, tạo asset mới và config có binding mới | fan.manage; re-auth chỉ nếu bật EXT bảo mật; TV2 |
 
 **Lệnh:** SET_MODE `{ "type":"SET_MODE", "params":{"mode":"MANUAL","duration_s":60} }`; SET_FAN `{ "type":"SET_FAN", "params":{"on":true} }`. SET_FAN chỉ ở MANUAL của CONTROLLER, dùng trạng thái tuyệt đối. FAN_MONITOR gửi SET_FAN/SET_MODE bị409 UNSUPPORTED_CAPABILITY sau kiểm permission; không toggle. UI phải chờ SET_MODE APPLIED trước tạo SET_FAN.
 
@@ -858,14 +850,14 @@ P0 có4 loại rule nhiệt/ẩm/offline/sensor fault. FAN_* và MONITOR_INPUT_L
 
 ### 9.3 Trang web P0 và mở rộng P1
 
-1. Login/Profile/password; phiên/revoke/hết hạn.
+1. Login/Profile/password; JWT memory15 phút; logout/revoke; reload hoặc hết hạn thì login lại, không UI session list/re-auth.
 2. Users/admin/phân quyền TV3 thực hiện.
 3. Devices: lifecycle/online/fault/version/onboarding/credentials/access/lock/decommission.
 4. Dashboard P0: nhiệt/ẩm thật/timestamps/history/export; AUTO/MANUAL, relay ON/OFF. Ghi “Chưa có giám sát RPM”; node2 chưa lắp không hiện RPM0/FAN alarm/STALE đỏ như một lỗi.
 5. Config P0: thermal thresholds/hysteresis/desired-applied/pending.
 6. Commands: ACK/timeout/attempts, đúng quyền/state.
 7. Alerts P0: nhiệt/ẩm/offline/sensor fault; ACK/resolve.
-8. **Nhật ký làm việc P0:** admin lọc user/chức năng/thao tác/kết quả/time/target, xem summary/correlation/command-operation status. User xem bản thân. Audit bảo mật màn riêng admin.
+8. **Nhật ký làm việc P0:** admin lọc user/chức năng/thao tác/kết quả/time, xem summary và command/operation ID khi có. Chỉ thao tác chính, không self-history hoặc tracking mọi lần xem. Audit bảo mật màn riêng admin.
 9. Device activity P0: events/commands/alerts theo scope; admin locations/groups/access/broker errors.
 10. **P1 tùy chọn:** fan overview/RPM/pulse/PPR/window/signal/monitor config/maintenance/replacement/binding.
 11. **P2 tùy chọn:** AI advisory/horizon/model/version/quality; chưa model không hiển thị dự báo giả.
@@ -878,7 +870,7 @@ Poll2s latest/commands/alerts khi mở màn; history tải theo khoảng, không
 |---|---|---|---|
 | TV1 — Thiết bị/giao thức | P0 DHT22+relay/AUTO/MQTT; P1 monitor TACH/demand/heartbeat nếu đủ điều kiện; cùng TV2 chốt contract | Mạch đo và quạt AUTO; sau đó telemetry/status/ACK theo payload mẫu | ID, GPIO, tên field/topic, đơn vị, timing |
 | TV2 — Backend thiết bị/dữ liệu | P0 thiết bị/data/config/shadow/commands/outbox/operations/events/API/MQTT worker; P1 mới fan/binding/fusion/maintenance | Flask+PostgreSQL27 CORE theo pha, seed controller+simulator, API data mẫu; P1 thêm4 bảng | Schema user/auth của TV3; contract auth; role rules |
-| TV3 — Tài khoản/bảo mật | users/roles/permissions/session/refresh/device_access/audit/user_activity helpers; auth API, UI Users; JWT/decorators, broker controller/ACL | Login/logout/me/password + helper permission + auth tests với fixture devices | Không dựng backend/DB độc lập; không chờ toàn TV2 xong |
+| TV3 — Tài khoản/bảo mật | users/roles/permissions/session DB/device_access/audit và activity thao tác chính; auth API, UI Users/Profile; JWT/decorators, broker adapter/ACL | Login/logout/me/password + permission/scope + audit + auth tests; không refresh/re-auth/session UI P0 | Không dựng backend/DB độc lập; không tự viết lifecycle/worker/deployment của TV2/TV4 |
 | TV4 — Dashboard/cảnh báo | web ngoài Users, backend alerts module + timer, deployment, tổ chức tích hợp | Layout + mock JSON đúng contract; UI phân biệt pending/applied | Không đổi payload theo nhu cầu UI; mọi người tự sửa phần mình |
 
 **Các việc chung phải phối hợp:**
@@ -953,7 +945,7 @@ docs/
 | ERD đầy đủ27 bảng CORE; P1 thêm4 bảng là thiết kế mở rộng nếu chưa làm, dictionary/FK/index/retention; OpenAPI; migration/seed/restore | TV2, TV3 viết phần auth |
 | Ít nhất 2 sequence: telemetry → dashboard; lệnh → ACK | TV2 + TV4, TV1 kiểm tra |
 | State diagram vòng đời và online/offline riêng | TV2 |
-| Role matrix, threat model, session/refresh/CSRF, ACL và privacy/retention | TV3 |
+| Role matrix, threat model, JWT/session/revoke, ACL/TLS và privacy/retention; giới hạn reload/login | TV3 |
 | Test plan, kết quả/bằng chứng, số đo độ trễ nhiệt/ẩm/lệnh/coverage P0; RPM/fan feedback nếu có P1 và nhận xét | Mỗi người phần mình; TV4 tập hợp |
 | Báo cáo 20–30 trang khuyến nghị, slide 8–12 trang khuyến nghị, video dự phòng | Mỗi người viết phần mình; không giao một người viết hết |
 | Hướng dẫn chạy từ máy sạch, GitHub release, khai báo tài liệu/thư viện/AI hỗ trợ | Cả nhóm |
@@ -995,13 +987,13 @@ Bổ sung P0 theo yêu cầu nhóm: admin dùng users/config/lock/export rồi m
 
 ### 12.3 Kiểm thử tối thiểu P0
 
-- Auth/password/logout/revoke/session/refresh/lock; tokens cũ bị từ chối.
+- Auth/password/logout/session expiry/lock/reset; access cũ bị từ chối, login không Set-Cookie, reload về login; không kiểm refresh như tính năng P0.
 - RBAC/scope: viewer không control; operator không đọc simulator chưa được giao.
 - MQTT credential/client_id/ACL/revoke; payload finite/schema/range/null/seq/dedup.
 - Command ACK/idempotency/timeout/late/revoke/crash và config desired khác applied.
 - Nhiệt/ẩm/offline/sensor alerts, ACK/clear/recur/resolve.
 - Network/NVS/AUTO, DHT fault thắng MANUAL OFF; không yêu cầu monitor.
-- Nhật ký function/actor/outcome/time, quyền SQL/redaction/append-only; không log mỗi poll, không giả SUCCESS202.
+- Nhật ký thao tác chính function/actor/outcome/time, admin-only/redaction/append-only; không log read/poll, không self-history, không giả SUCCESS202.
 - Smoke30 phút/soak2h; ≥20 command latency,≥30 sensor→UI; nhiệt kế đối chiếu.
 - Restore/máy sạch; simulator scope/tải không thay node vật lý.
 
@@ -1037,10 +1029,10 @@ Yêu cầu học phần lấy từ PDF đính kèm, không thay bằng bài blog
 
 - Mosquitto Dynamic Security: https://mosquitto.org/documentation/dynamic-security/ — client_id binding, disable/disconnect/reconnect denial, ACL send/receive/subscribe; TV3 ghi version thực tế đã test.
 - PubSubClient chính chủ: https://github.com/knolleary/pubsubclient — publish QoS0, subscribe QoS0/1, packet buffer cấu hình được.
-- Flask-JWT-Extended revoke: https://flask-jwt-extended.readthedocs.io/en/stable/blocklist_and_token_revoking.html — phải thu hồi khả năng refresh khi logout; V1.3 dùng hook kiểm tra session cho access và opaque refresh service riêng, không giả định thư viện tự làm rotation.
+- Flask-JWT-Extended revoke: https://flask-jwt-extended.readthedocs.io/en/stable/blocklist_and_token_revoking.html — P0 dùng hook/service kiểm session DB cho access; logout/lock/password change revoke theo sid/ver; chưa phát refresh token.
 - OWASP Password Storage: https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html — Argon2id và tham số tối thiểu; không băm password bằng SHA-256 đơn thuần.
-- OWASP Session Management: https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html — server-side expiry/revoke, cookie flags và tránh token trong web storage; thời hạn15m/8h/30m là quyết định mô hình của nhóm.
-- PostgreSQL16 row locks: https://www.postgresql.org/docs/16/explicit-locking.html — transaction/row lock cho version, queue, refresh và race; không thay bằng counter frontend.
+- OWASP Session Management: https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html — server-side expiry/revoke; P0 chọn JWT/session cùng hạn15 phút, không sliding timeout hoặc auth cookie; token chỉ ở memory.
+- PostgreSQL16 row locks: https://www.postgresql.org/docs/16/explicit-locking.html — transaction/row lock cho version, queue, account/login và race; không thay bằng counter frontend.
 - ESP-IDF ESP32 OTA: https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/ota.html — dual app slots + otadata, boot validation/rollback và signed update. Phải kiểm tra tương thích đúng core/bootloader/flash của bo, không coi ArduinoOTA mặc định đã bảo đảm mọi chức năng này.
 
 - Noctua hướng dẫn microcontroller/RPM: https://www.noctua.at/en/support/faqs/microcontroller-guide-pwm-setup-and-rpm-monitoring — tài liệu hãng cho TACH open-collector và2 xung/vòng của fan Noctua; không suy rộng PPR cho mọi quạt. Quạt nhóm mua phải có pinout/mức tín hiệu/PPR được xác minh riêng.
@@ -1207,6 +1199,8 @@ Demo AI hoàn chỉnh theo PDF: dữ liệu thật mới→feature window/model 
 
 | Nhu cầu EXT | Schema / quy tắc bổ sung |
 |---|---|
+| Refresh token / cookie / nhiều phiên | P0 không triển khai. Khi chọn EXT mới thiết kế opaque rotation/reuse, composite FK cùng family, signed CSRF cookie/Origin, session absolute/idle timeout, multi-tab coordination và retention; dùng bảng refresh_tokens đã giữ, migration tiếp nối nếu cần |
+| Re-auth / session UI / self activity | Endpoint/UI/test riêng sau P0; reauthenticated_at dự phòng; session list/revoke/logout-all và self-history/redaction không thuộc tiêu chí nghiệm thu P0 hiện tại |
 | Email verification / tự reset password | `auth_action_tokens(id,user_id,purpose,token_hash,expires_at,used_at,created_at)`; purpose VERIFY_EMAIL/RESET_PASSWORD; unique token hash, one-time/TTL, token random32byte; thông báo chung chống enumeration; reset revoke all session |
 | MFA | `mfa_factors(id,user_id,type,secret_ciphertext,verified_at,revoked_at)`; `mfa_recovery_codes(id,user_id,code_hash,used_at)`; OTP/recovery rate limit; encryption key ngoài DB, không plaintext TOTP secret |
 | Nhiều role và role tùy biến | Bỏ UQ(user_id) ở user_roles qua migration, thêm UI quản trị/permission audit; không thêm arbitrary user deny/allow trước khi định nghĩa conflict semantics |
@@ -1232,8 +1226,8 @@ P0 không cần PWM/Kotlin/microservices/RPM/current/vibration. Giữ drivers/ad
 | Mối đe dọa cụ thể | Biện pháp CORE | Bằng chứng cần có |
 |---|---|---|
 | Đoán mật khẩu/enumeration | Argon2id, thông báo chung, giới hạn username/IP bền vững | Rate-limit test, log không chứa password |
-| Token bị lấy/reuse sau logout | Access TTL, sid check, rotating refresh hash, revoke family, cookie flags/TLS | Access/refresh cũ bị401, session row revoked |
-| CSRF vào refresh/logout/provision | Signed CSRF ràng buộc session, Origin allowlist, refresh cookie Strict; API bearer và re-auth nhạy cảm | Thiếu/sai CSRF/Origin bị từ chối; same-origin đúng chạy |
+| Token bị lấy/dùng lại sau logout | Access TTL15 phút, sid/ver check mỗi request, revoke DB, HTTPS và token memory | Access cũ bị401 sau logout/lock/password change; session row revoked; không Set-Cookie/token trong Web Storage |
+| Request web trái origin / dựa cookie tự gửi | P0 chỉ Bearer header, không auth cookie; login/logout kiểm Origin allowlist; mutation khác cần token/permission; CORS origin tường minh | Thiếu/sai Origin ở login/logout bị403; request chỉ có cookie không được authenticate; không thêm CSRF-cookie P0 |
 | IDOR: sửa device/command/alert ID | Role permission + SQL scope + lookup qua device đích, exports/statistics cùng guard | P0 user không grant sim-unassigned bị deny; P1 thêm monitor-only user không đọc controller |
 | Tự nâng role/mass assignment | Schema allowlist, API role admin-only, last-admin transaction | PATCH role/password_hash/token_version ngoài contract bị reject |
 | Node giả mạo khác/đánh cắp MQTT secret | Credential riêng, client_id binding, ACL exact topics, MQTTS CA verify | P0 node1 không send/receive sim-unassigned; P1 thêm kiểm chéo monitor, username đúng/client_id sai bị deny |
@@ -1248,11 +1242,11 @@ P0 không cần PWM/Kotlin/microservices/RPM/current/vibration. Giữ drivers/ad
 
 ### 15.2 Quyền riêng tư, secret và vận hành
 
-- Thu username/tên hiển thị, email nếu dùng; session có IP/UA tối thiểu để user nhận diện phiên và kiểm toán. Metadata auth chỉ user bản thân/admin đọc; operator không xem phiên người khác.
+- Thu username/tên hiển thị, email nếu dùng; session giữ IP/UA tối thiểu phục vụ kiểm toán hạn chế truy cập. P0 không có API session metadata; operator/viewer không đọc audit hoặc phiên người khác.
 - Không thu chat/audio/camera/GPS; dữ liệu nhiệt/ẩm/RPM/demand phản ánh hoạt động phòng/tủ, vẫn giới hạn phạm vi chia sẻ. Export phải cùng quyền đọc, không xuất user credentials/audit bảo mật cho viewer.
 - Retention đúng mục 6.7; backup/access limited; archive/anonymize user phù hợp nhưng giữ actor snapshot để lịch sử có nghĩa. Không dùng danh sách sinh viên/email thật làm seed trên repo công khai.
-- Secret môi trường tách JWT_SIGNING_KEY, CSRF_SIGNING_KEY, AUTH_LOG_HMAC_KEY, DB credential, broker worker credential, broker controller credential, CA private key. Service worker thường không có broker admin permission; controller có scope quản trị riêng. Đổi secret có kế hoạch revoke/reprovision, không đăng secret mới lên chat/commit.
-- Header/trusted proxy config để không tin X-Forwarded-For bất kỳ nguồn nào; origin/SAN/cookie domain trùng profile triển khai. Profile development HTTP phải tách khỏi TLS release và không dùng Secure=false trong bản bàn giao mà vẫn báo đã mã hóa.
+- Secret môi trường tách SECRET_KEY, JWT_SECRET_KEY, AUTH_LOG_HMAC_KEY, DB credential, broker worker credential, broker controller credential và CA private key. CSRF_SECRET_KEY cũ nếu còn trong config chỉ là dự phòng EXT, P0 không cần/nạp làm cơ chế xác thực. Service worker không có broker admin permission. Đổi secret có kế hoạch revoke/reprovision, không đăng secret mới lên chat/commit.
+- Header/trusted proxy config không tin X-Forwarded-For tùy ý; Origin/SAN đúng profile triển khai. Development HTTP/MQTT tách khỏi HTTPS/MQTTS release và ghi rõ giới hạn; P0 không Set-Cookie xác thực. Không dùng setInsecure hoặc coi expose8883 là đã đạt TLS.
 
 ### 15.3 Bộ ca kiểm thử cụ thể (bổ sung mục 12.3)
 
@@ -1267,9 +1261,9 @@ P0 không cần PWM/Kotlin/microservices/RPM/current/vibration. Giữ drivers/ad
 | FAN-05 | P1 | DemandOFF qua stop grace nhưng inject xung quay; sau đó mất heartbeat | UNEXPECTED_ROTATION/FAN_UNEXPECTED_ROTATION với evidence, rồi UNKNOWN giữ incident; không ghi STOPPED giả hoặc tự kết luận relay hỏng |
 | IAM-01 | P0 | Viewer có VIEW node 1 gửi SET_FAN/node 1 | 403, không command/outbox mới; audit denied |
 | IAM-02 | P0 | User không grant sim-unassigned đọc latest/history/export/command/alert của simulator đó | 404 và không lộ count/metadata; SQL filter chứng minh |
-| IAM-03 | P0 | Logout/revoke/khóa/đổi mật khẩu rồi dùng access+refresh cũ | 401; token_version/session thay; khóa không bypass qua refresh |
-| IAM-04 | P0 | Refresh thành công, phát lại token cũ; hai request rotation đồng thời | Family revoked khi reuse, chỉ một rotation hợp lệ; frontend single-flight không tự gây replay |
-| IAM-05 | P0 | Thiếu/sai signed CSRF/Origin khi refresh/logout | Từ chối trước mutation; test TLS cookie flags |
+| IAM-03 | P0 | Logout/khóa/archive/đổi hoặc reset password rồi dùng access cũ | 401; sid revoked hoặc ver thay; mở khóa không hồi sinh token |
+| IAM-04 | P0 | JWT/session đủ15 phút; tiếp tục polling; reload/mở tab mới | Session không gia hạn, access hết hạn401; UI cần login; không token Web Storage/URL/cookie hoặc refresh request |
+| IAM-05 | P0 | Login/logout thiếu/sai Origin; API bảo vệ chỉ có cookie hoặc bearer malformed/iss/aud sai | Origin sai403, credential sai401; không business mutation; login không Set-Cookie |
 | IAM-06 | P0 | Hạ/khóa hai admin cuối đồng thời | Ít nhất một admin ACTIVE giữ lại; transaction/lock có test |
 | IAM-07 | P0 | Login sai >limit rồi restart API | 429/cooldown vẫn giữ, không lộ username existence |
 | MQTT-01 | P0 | Node1 pub/sub/receive sim-unassigned hoặc wrong client_id | Broker deny, không telemetry/ACK ngoài own topics |
@@ -1285,8 +1279,8 @@ P0 không cần PWM/Kotlin/microservices/RPM/current/vibration. Giữ drivers/ad
 | OPS-01 | P0 | Mất mạng, sensor fault, manualOFF, reconnect | AUTO/fan safety đúng, UI stale/offline, manual không kéo dài, config applied giữ NVS |
 | PERF-01 | P0 | Node1 thật2h; EXT50 simulator/15m nếu chọn | CPU/RAM/latency/loss có dữ liệu, nguồn simulator tách; nêu giới hạn máy/mạng |
 | LOG-01 | P0 | Admin dùng users/config/control/lock/export/login/logout và mở nhật ký | actor/function/action/time/outcome đúng;202 ACCEPTED, link command/operation/audit; append-only |
-| LOG-02 | P0 | Operator/viewer đọc admin logs; filter/count/spoof actor/target sau revoke |403 admin endpoint,self-only SQL/redaction; no secret/actor spoof |
-| LOG-03 | P0 | Poll2s/log-read page/rollback/lỗi/hai read đồng thời | Không mỗi tick/recursion; read dedup30s; không SUCCESS giả; DENIED/FAILED riêng |
+| LOG-02 | P0 | Operator/viewer đọc audit/all-activity; spoof actor/summary/outcome |403 admin endpoint; actor server xác định, no secret; không có self activity API |
+| LOG-03 | P0 | Poll2s/read/log-read/rollback/lỗi | Không log read/poll/recursion; không SUCCESS giả; mutation/audit/activity atomic, DENIED/FAILED transaction riêng |
 | DB-01 | P0/P1 | DB rỗng27 bảng P0; optional27→31 | P0 binding null vẫn AUTO/thermal/config; P1 không gán history sai fan; FKs đúng |
 | REC-01 | P0 | Restore DB/broker trên môi trường khác | Schema/seed/grants/config/history khớp; TLS/credential profile phù hợp, e2e chạy |
 
@@ -1354,7 +1348,7 @@ flowchart TD
   S -.-> AI["P2 dự kiến: AI"]
 ```
 
-P0 use cases: login/refresh/onboard/thermal/history/AUTO/MANUAL/ACK/config/alerts/users/access/sessions/logs/revoke/decommission. P1 riêng: monitor/binding/RPM/maintenance/replacement. Normal/error/postcondition và trạng thái triển khai được mô tả từng use case.
+P0 use cases: login/logout/me/password/onboard/thermal/history/AUTO/MANUAL/ACK/config/alerts/users/access/admin logs/revoke/decommission. Session DB chỉ là hạ tầng expiry/revoke, không có màn quản lý phiên; refresh/re-auth/self activity là EXT. P1 riêng: monitor/binding/RPM/maintenance/replacement. Normal/error/postcondition và trạng thái triển khai được mô tả từng use case.
 
 Hardware P0: DHTGPIO23/relayGPIO18/LED19-25/còi26 nếu có, nguồn/GND/COM-NO/fan; ảnh/BOM/pinout đúng linh kiện. P1 mới vẽ demandOUTPUT27/aliveOUTPUT32 và monitor TACHINPUT23/demandINPUT27/aliveINPUT33+pull-up/series/pulldown; chưa làm ghi sơ đồ đề xuất. Sơ đồ khối không thay sơ đồ nối dây.
 
