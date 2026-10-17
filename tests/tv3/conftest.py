@@ -132,3 +132,24 @@ def app():
 @pytest.fixture
 def client(app):
     return app.test_client()
+
+@pytest.fixture
+def transaction_session(app):
+    """Isolated database session using connection transaction + SAVEPOINT.
+    Commits inside seed/test only advance savepoints; root transaction rolls back
+    at test teardown to keep PostgreSQL test database completely clean.
+    """
+    from sqlalchemy.orm import Session, scoped_session
+    with app.app_context():
+        conn = db.engine.connect()
+        trans = conn.begin()
+        session = Session(bind=conn, join_transaction_mode="create_savepoint")
+        old_session = db.session
+        db.session = scoped_session(lambda: session)
+        try:
+            yield session
+        finally:
+            db.session = old_session
+            session.close()
+            trans.rollback()
+            conn.close()

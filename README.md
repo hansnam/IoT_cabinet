@@ -66,33 +66,57 @@ pip install -r backend/requirements.txt
 
 ### Bước 2: Thiết Lập File Biến Môi Trường (`.env`)
 
-Tệp `.env.example` **đã được điền sẵn toàn bộ các khóa bảo mật ngẫu nhiên chuẩn an toàn (>= 32 bytes) và thông số cục bộ mặc định**. Bạn chỉ cần copy sang `.env` là có thể sử dụng ngay mà không cần phải tự sinh khóa thủ công:
+Tạo file `.env` từ file mẫu `.env.example`:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-> [!TIP]
-> **Mặc định `.env.example` sử dụng:**
-> - Mật khẩu PostgreSQL: `postgres123`
-> - Khóa bí mật `SECRET_KEY`, `JWT_SECRET_KEY`, `AUTH_LOG_HMAC_KEY`: Đã có sẵn 3 chuỗi hex ngẫu nhiên 64 ký tự hoàn toàn khác biệt.
-> - Nếu tài khoản PostgreSQL trên máy của bạn có mật khẩu khác `postgres123`, chỉ cần mở `.env` và sửa lại mật khẩu trong `DATABASE_URL`, `TEST_DATABASE_URL` và `DB_PASSWORD`.
+#### 2.1. LỆNH SINH MẬT KHẨU & KHÓA BẢO MẬT TỰ ĐỘNG (Copy & Dán)
 
-#### (Tùy chọn) Xử Lý Mật Khẩu PostgreSQL Có Ký Tự Đặc Biệt (URL-Encoding)
+Các biến bảo mật (`SECRET_KEY`, `JWT_SECRET_KEY`, `AUTH_LOG_HMAC_KEY`) bắt buộc phải là chuỗi ngẫu nhiên có độ dài **tối thiểu 32 bytes (64 ký tự hex)** và **hoàn toàn khác nhau**.
 
-Nếu mật khẩu PostgreSQL của bạn có chứa các ký tự đặc biệt như `@`, `#`, `:`, `/`, `$`, `%`,... thì phải mã hóa URL trước khi ghép vào chuỗi kết nối:
+👉 **Chạy ngay lệnh Python 1-dòng dưới đây trong PowerShell để sinh toàn bộ các khóa & mật khẩu ngẫu nhiên:**
+
+```powershell
+.\.venv\Scripts\python.exe -c "import secrets; print('\n' + '='*65); print('--- COPY CÁC DÒNG DƯỚI ĐÂY DÁN THAY THẾ VÀO FILE .env ---'); print('='*65); print(f'SECRET_KEY={secrets.token_hex(32)}'); print(f'JWT_SECRET_KEY={secrets.token_hex(32)}'); print(f'AUTH_LOG_HMAC_KEY={secrets.token_hex(32)}'); print(f'MQTT_WORKER_PASSWORD={secrets.token_urlsafe(16)}'); print(f'MQTT_CONTROLLER_PASSWORD={secrets.token_urlsafe(16)}'); print(f'ADMIN_BOOTSTRAP_PASSWORD={secrets.token_urlsafe(16)}'); print(f'OPERATOR_BOOTSTRAP_PASSWORD={secrets.token_urlsafe(16)}'); print(f'VIEWER_BOOTSTRAP_PASSWORD={secrets.token_urlsafe(16)}'); print('='*65 + '\n')"
+```
+
+#### 2.2. Xử Lý Mật Khẩu PostgreSQL Có Ký Tự Đặc Biệt (URL-Encoding)
+
+Trong chuỗi `DATABASE_URL` và `TEST_DATABASE_URL`, nếu mật khẩu PostgreSQL của bạn có chứa các ký tự đặc biệt như `@`, `#`, `:`, `/`, `$`, `%`,... thì phải mã hóa URL.
+
+👉 **Chạy lệnh sau để lấy mật khẩu đã mã hóa URL:**
 
 ```powershell
 .\.venv\Scripts\python.exe -c "import urllib.parse; p = input('Nhập mật khẩu Postgres của bạn: '); print('\nMật khẩu đã mã hóa URL để ghép vào DATABASE_URL:\n' + urllib.parse.quote_plus(p) + '\n')"
 ```
 
-#### (Tùy chọn) Lệnh Sinh Bộ Khóa Mới Nếu Cần Thay Đổi
+#### 2.3. Bảng Kiểm Tra Các Giá Trị Cần Điền Trong `.env`
 
-Nếu muốn tạo một bộ khóa mới hoàn toàn khác, bạn có thể chạy:
+Mở file `.env` bằng trình biên soạn (VS Code, Notepad,...) và kiểm tra các dòng sau:
 
-```powershell
-.\.venv\Scripts\python.exe -c "import secrets; print('\n' + '='*65); print('--- CÁC DÒNG MỚI ĐỂ DÁN VÀO FILE .env ---'); print('='*65); print(f'SECRET_KEY={secrets.token_hex(32)}'); print(f'JWT_SECRET_KEY={secrets.token_hex(32)}'); print(f'AUTH_LOG_HMAC_KEY={secrets.token_hex(32)}'); print(f'MQTT_WORKER_PASSWORD={secrets.token_urlsafe(16)}'); print(f'MQTT_CONTROLLER_PASSWORD={secrets.token_urlsafe(16)}'); print(f'ADMIN_BOOTSTRAP_PASSWORD={secrets.token_urlsafe(16)}'); print(f'OPERATOR_BOOTSTRAP_PASSWORD={secrets.token_urlsafe(16)}'); print(f'VIEWER_BOOTSTRAP_PASSWORD={secrets.token_urlsafe(16)}'); print('='*65 + '\n')"
-```
+| Tên biến                                | Ví dụ / Hướng dẫn điền                                                      |
+| --------------------------------------- | --------------------------------------------------------------------------- |
+| `FLASK_ENV`                             | `development` (khi code và debug cục bộ)                                    |
+| `SECRET_KEY`                            | Dán chuỗi 64 ký tự hex từ lệnh sinh ở Mục 2.1                               |
+| `JWT_SECRET_KEY`                        | Dán chuỗi 64 ký tự hex từ lệnh sinh ở Mục 2.1                               |
+| `AUTH_LOG_HMAC_KEY`                     | Dán chuỗi 64 ký tự hex từ lệnh sinh ở Mục 2.1                               |
+| `DATABASE_URL`                          | `postgresql://postgres:<MAT_KHAU_POSTGRES>@127.0.0.1:5432/iot_cabinet`      |
+| `TEST_DATABASE_URL`                     | `postgresql://postgres:<MAT_KHAU_POSTGRES>@127.0.0.1:5432/iot_cabinet_test` |
+| `DB_PASSWORD`                           | Mật khẩu Postgres thật của bạn                                              |
+| `JWT_ACCESS_TOKEN_EXPIRES_SECONDS`      | `900` (15 phút theo chuẩn P0)                                               |
+| `TEST_JWT_ACCESS_TOKEN_EXPIRES_SECONDS` | `5` (thời hạn 5 giây khi chạy test)                                         |
+| `AUTH_ALLOWED_ORIGINS`                  | `http://localhost:5173,http://127.0.0.1:5173`                               |
+| `CORS_ALLOWED_ORIGINS`                  | `http://localhost:5173,http://127.0.0.1:5173`                               |
+| `MQTT_WORKER_PASSWORD`                  | Dán mật khẩu ngẫu nhiên từ lệnh ở Mục 2.1                                   |
+| `MQTT_CONTROLLER_PASSWORD`              | Dán mật khẩu ngẫu nhiên từ lệnh ở Mục 2.1                                   |
+| `ADMIN_BOOTSTRAP_PASSWORD`              | Dán mật khẩu ngẫu nhiên từ lệnh ở Mục 2.1                                   |
+| `OPERATOR_BOOTSTRAP_PASSWORD`           | Dán mật khẩu ngẫu nhiên từ lệnh ở Mục 2.1                                   |
+| `VIEWER_BOOTSTRAP_PASSWORD`             | Dán mật khẩu ngẫu nhiên từ lệnh ở Mục 2.1                                   |
+
+> [!WARNING]
+> Tuyệt đối không để giá trị placeholder dạng `REPLACE_WITH_...` trong file `.env`. Nếu còn placeholder hoặc các khóa bảo mật bị trùng nhau, hệ thống sẽ chặn không cho ứng dụng khởi động để bảo vệ an toàn.
 
 ---
 
@@ -128,17 +152,16 @@ CREATE DATABASE iot_cabinet_test WITH ENCODING 'UTF8';
 Chạy Alembic migration để tạo toàn bộ 27 bảng nghiệp vụ + 1 bảng `alembic_version` trên cả 2 database:
 
 ```powershell
-# --- Trên Windows PowerShell: ---
+# 1. Nạp bảng cho database chính (iot_cabinet)
 $env:FLASK_ENV='development'
 .\.venv\Scripts\python.exe -m flask --app backend.app:create_app db upgrade --directory backend/migrations
 
+# 2. Nạp bảng cho database kiểm thử (iot_cabinet_test)
 $env:FLASK_ENV='testing'
 .\.venv\Scripts\python.exe -m flask --app backend.app:create_app db upgrade --directory backend/migrations
-$env:FLASK_ENV='development'
 
-# --- Trên WSL / Linux (Bash): ---
-FLASK_ENV=development ./.venv/Scripts/python.exe -m flask --app backend.app:create_app db upgrade --directory backend/migrations
-FLASK_ENV=testing ./.venv/Scripts/python.exe -m flask --app backend.app:create_app db upgrade --directory backend/migrations
+# 3. Trả lại biến môi trường về development
+$env:FLASK_ENV='development'
 ```
 
 > [!NOTE]
@@ -150,22 +173,12 @@ FLASK_ENV=testing ./.venv/Scripts/python.exe -m flask --app backend.app:create_a
 
 Trước khi chạy server, hãy chạy bộ kiểm thử để đảm bảo mọi cấu hình và module an ninh đều hợp lệ:
 
-#### 1. Trên Windows PowerShell:
 ```powershell
-# Chạy Unit tests (không cần kết nối Database):
+# 1. Chạy Unit tests (không cần kết nối Database):
 .\.venv\Scripts\python.exe -m pytest tests/tv3/test_foundation.py -v -k "not postgres"
 
-# Chạy toàn bộ kiểm thử (gồm cả Database Guard & Health Readiness trên PostgreSQL):
+# 2. Chạy toàn bộ kiểm thử (gồm cả Database Guard & Health Readiness trên PostgreSQL):
 .\.venv\Scripts\python.exe -m pytest tests/tv3/test_foundation.py -v
-```
-
-#### 2. Trên WSL / Linux (Bash):
-```bash
-# Chạy Unit tests (không cần kết nối Database):
-./.venv/Scripts/python.exe -m pytest tests/tv3/test_foundation.py -v -k "not postgres"
-
-# Chạy toàn bộ kiểm thử (gồm cả Database Guard & Health Readiness trên PostgreSQL):
-./.venv/Scripts/python.exe -m pytest tests/tv3/test_foundation.py -v
 ```
 
 Kỳ vọng: Tất cả các bài kiểm thử đều hiển thị màu xanh `PASSED`.
@@ -177,11 +190,7 @@ Kỳ vọng: Tất cả các bài kiểm thử đều hiển thị màu xanh `PA
 Khởi động Flask API Server tại địa chỉ `127.0.0.1:5000`:
 
 ```powershell
-# Trên Windows PowerShell:
 .\.venv\Scripts\python.exe -m flask --app backend.app:create_app run --host 127.0.0.1 --port 5000
-
-# Trên WSL / Linux (Bash):
-./.venv/Scripts/python.exe -m flask --app backend.app:create_app run --host 127.0.0.1 --port 5000
 ```
 
 #### Kiểm Tra Sức Khỏe Máy Chủ (Health Endpoints)
@@ -189,21 +198,24 @@ Khởi động Flask API Server tại địa chỉ `127.0.0.1:5000`:
 Mở một cửa sổ PowerShell hoặc Terminal khác để kiểm tra phản hồi:
 
 1. **Kiểm tra Liveness (Máy chủ đang chạy):**
-   ```bash
+
+   ```powershell
    curl http://127.0.0.1:5000/health/live
    ```
-   *Kết quả kỳ vọng:*
+
+   _Kết quả kỳ vọng:_
+
    ```json
-   {"status": "live"}
+   { "status": "live" }
    ```
 
 2. **Kiểm tra Readiness (Kết nối cơ sở dữ liệu sẵn sàng):**
-   ```bash
+   ```powershell
    curl http://127.0.0.1:5000/health/ready
    ```
-   *Kết quả kỳ vọng:*
+   _Kết quả kỳ vọng:_
    ```json
-   {"database": "connected", "status": "ready"}
+   { "database": "connected", "status": "ready" }
    ```
 
 ---
@@ -213,21 +225,14 @@ Mở một cửa sổ PowerShell hoặc Terminal khác để kiểm tra phản h
 Khi cần thử nghiệm tương tác cảm biến hoặc cảnh báo, mở 2 cửa sổ terminal riêng biệt:
 
 1. **MQTT Worker (Ingest dữ liệu cảm biến & dispatch lệnh):**
-   ```bash
-   # Windows PowerShell:
-   .\.venv\Scripts\python.exe backend/workers/mqtt_worker.py
 
-   # WSL / Linux (Bash):
-   ./.venv/Scripts/python.exe backend/workers/mqtt_worker.py
+   ```powershell
+   .\.venv\Scripts\python.exe backend/workers/mqtt_worker.py
    ```
 
 2. **Alert Worker (Đánh giá luật cảnh báo nhiệt độ/độ ẩm định kỳ 10s):**
-   ```bash
-   # Windows PowerShell:
+   ```powershell
    .\.venv\Scripts\python.exe backend/workers/alert_worker.py
-
-   # WSL / Linux (Bash):
-   ./.venv/Scripts/python.exe backend/workers/alert_worker.py
    ```
 
 ---
@@ -235,10 +240,10 @@ Khi cần thử nghiệm tương tác cảm biến hoặc cảnh báo, mở 2 c�
 ## 3. Xử Lý Sự Cố Thường Gặp (Troubleshooting)
 
 - **Lỗi `ValueError: Invalid configuration: ...` khi khởi động:**
-  - *Nguyên nhân:* Một trong các biến `SECRET_KEY`, `JWT_SECRET_KEY`, `AUTH_LOG_HMAC_KEY` bị thiếu, ngắn hơn 32 ký tự, bị trùng nhau, hoặc vẫn giữ chuỗi mẫu `REPLACE_WITH_...`.
-  - *Khắc phục:* Chạy lại lệnh sinh khóa 1-dòng ở **Mục 2.1** và dán đè vào `.env`.
+  - _Nguyên nhân:_ Một trong các biến `SECRET_KEY`, `JWT_SECRET_KEY`, `AUTH_LOG_HMAC_KEY` bị thiếu, ngắn hơn 32 ký tự, bị trùng nhau, hoặc vẫn giữ chuỗi mẫu `REPLACE_WITH_...`.
+  - _Khắc phục:_ Chạy lại lệnh sinh khóa 1-dòng ở **Mục 2.1** và dán đè vào `.env`.
 - **Lỗi `Database is unavailable` (HTTP 503 tại `/health/ready`):**
-  - *Nguyên nhân:* Mật khẩu PostgreSQL trong `.env` chưa đúng, service Postgres chưa bật, hoặc chưa chạy migration.
-  - *Khắc phục:* Mở `services.msc` kiểm tra dịch vụ `postgresql-x64-18` đang chạy, thử đăng nhập bằng psql và kiểm tra lại chuỗi `DATABASE_URL`.
+  - _Nguyên nhân:_ Mật khẩu PostgreSQL trong `.env` chưa đúng, service Postgres chưa bật, hoặc chưa chạy migration.
+  - _Khắc phục:_ Mở `services.msc` kiểm tra dịch vụ `postgresql-x64-18` đang chạy, thử đăng nhập bằng psql và kiểm tra lại chuỗi `DATABASE_URL`.
 - **Lỗi `Negative test fail` hoặc `Target database must be in allowlist`:**
-  - *Nguyên nhân:* Database kiểm thử trong `TEST_DATABASE_URL` bắt buộc phải có tên là `iot_cabinet_test` (không được trùng tên với `iot_cabinet` và không dùng database khác).
+  - _Nguyên nhân:_ Database kiểm thử trong `TEST_DATABASE_URL` bắt buộc phải có tên là `iot_cabinet_test` (không được trùng tên với `iot_cabinet` và không dùng database khác).
