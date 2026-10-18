@@ -41,7 +41,6 @@ def create_app(config_name=None, test_config=None):
     @app.route("/health/ready", methods=["GET"])
     def readiness():
         try:
-            # Kiểm tra kết nối DB cơ bản
             db.session.execute(text("SELECT 1"))
             return jsonify({
                 "status": "ready",
@@ -70,5 +69,5 @@ def create_app(config_name=None, test_config=None):
 
 def register_blueprints(app):
     """Đăng ký các Blueprints chức năng"""
-    # Placeholder cho các Blueprint sẽ tạo ở Pha A, B, C
-    pass
+    from backend.app.auth.routes import auth_bp
+    app.register_blueprint(auth_bp)

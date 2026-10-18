@@ -1,8 +1,9 @@
 """
-Permissions & Security Decorators (Thành viên 3 chủ trì - TV3-04A Revision 3)
+Permissions & Security Decorators (Thành viên 3 chủ trì - TV3-04A Revision 3 / TV3-03B Delta)
 Cung cấp decorator @require_auth và @require_permission:
 1. @require_auth: Xác minh Bearer JWT, session DB và gắn request.auth.
    - Hỗ trợ tái sử dụng request.auth nếu đã được xác thực trước đó (tránh lặp query).
+   - Enforce ràng buộc must_change_password ở cấp độ backend guard dùng chung.
 2. @require_permission: Kiểm tra quyền hạn và device scope:
    - Tự động áp dụng @require_auth.
    - Fail-closed HTTP 400 nếu cấu hình device_id_param nhưng không tìm thấy trong URL/kwargs.
@@ -30,21 +31,37 @@ from backend.app.extensions import db
 # Danh sách các ngoại lệ mất kết nối hoặc timeout DB dự kiến trả về 503
 DB_UNAVAILABLE_ERRORS = (OperationalError, InterfaceError, SQLAlchemyTimeoutError)
 
+# Whitelist các endpoint được phép gọi khi tài khoản đang trong trạng thái must_change_password=True
+MUST_CHANGE_PASSWORD_ALLOWED_ROUTES = frozenset({
+    ("GET", "/api/v1/auth/me"),
+    ("PATCH", "/api/v1/auth/me"),
+    ("POST", "/api/v1/auth/change-password"),
+    ("POST", "/api/v1/auth/logout"),
+})
+
+
+def _is_must_change_password_allowed(method: str, path: str) -> bool:
+    """Helper kiểm tra endpoint có thuộc danh sách ngoại lệ được phép của must_change_password hay không."""
+    return (method.upper(), path.rstrip("/")) in MUST_CHANGE_PASSWORD_ALLOWED_ROUTES
+
 
 def require_auth(fn):
-    """Decorator bảo vệ endpoint API yêu cầu xác thực người dùng (TV3-03A).
+    """Decorator bảo vệ endpoint API yêu cầu xác thực người dùng (TV3-03A / TV3-03B).
     - Chỉ chấp nhận Authorization: Bearer <token>. Từ chối cookie/query/body.
     - Xác minh token qua pipeline 02B trước khi gọi DB.
     - Kiểm tra user ACTIVE, session hợp lệ, đúng token_version, role DB.
     - Gắn AuthContext vào request.auth (nguồn danh tính duy nhất).
     - Caller truy xuất context qua get_current_auth() hoặc request.auth.
     - Tự động tái sử dụng nếu request.auth đã tồn tại từ decorator khác.
+    - Enforce ràng buộc must_change_password: chặn mọi route ngoài whitelist bằng 403.
     """
     @wraps(fn)
     def wrapper(*args, **kwargs):
         # 0. Nếu request đã được xác thực trước đó (ví dụ qua decorator lồng), tái sử dụng ngay
         auth_context = getattr(request, "auth", None)
         if auth_context is not None:
+            if getattr(request, "must_change_password", False) and not _is_must_change_password_allowed(request.method, request.path):
+                return make_error_response(ErrorCode.FORBIDDEN, ErrorMessage.FORBIDDEN, 403)
             return fn(*args, **kwargs)
 
         # 1. Trích xuất Authorization Bearer token từ header
@@ -59,7 +76,6 @@ def require_auth(fn):
         try:
             jwt_claims = decode_and_verify_access_token(token)
         except (ValueError, TypeError, pyjwt.PyJWTError, JWTExtendedException):
-            # Bất kỳ vi phạm chữ ký, expired, thiếu type, sai alg hay claims đều trả về 401
             return make_error_response(ErrorCode.UNAUTHORIZED, ErrorMessage.UNAUTHORIZED, 401)
 
         # 3. Tra cứu DB kiểm tra user, session, token_version, expiry và role
@@ -68,11 +84,14 @@ def require_auth(fn):
             if auth_context is None:
                 return make_error_response(ErrorCode.UNAUTHORIZED, ErrorMessage.UNAUTHORIZED, 401)
         except DB_UNAVAILABLE_ERRORS:
-            # Lỗi mất kết nối, lỗi interface hoặc timeout connection pool DB -> fail closed 503
             return make_error_response(ErrorCode.SERVICE_UNAVAILABLE, ErrorMessage.SERVICE_UNAVAILABLE, 503)
 
-        # 4. Gắn AuthContext vào request.auth (nguồn danh tính duy nhất, không dùng g.auth)
+        # 4. Gắn AuthContext vào request.auth (nguồn danh tính duy nhất)
         request.auth = auth_context
+
+        # 5. Ràng buộc must_change_password: từ chối các endpoint ngoài whitelist
+        if getattr(request, "must_change_password", False) and not _is_must_change_password_allowed(request.method, request.path):
+            return make_error_response(ErrorCode.FORBIDDEN, ErrorMessage.FORBIDDEN, 403)
 
         return fn(*args, **kwargs)
 
@@ -93,7 +112,6 @@ def require_permission(code: str, device_id_param: str | None = None):
         def wrapper(*args, **kwargs):
             auth_context = request.auth
 
-            # Trích xuất tham số thiết bị nếu có cấu hình
             device_id = None
             if device_id_param is not None:
                 if request.view_args and device_id_param in request.view_args:
@@ -101,11 +119,9 @@ def require_permission(code: str, device_id_param: str | None = None):
                 elif device_id_param in kwargs:
                     device_id = kwargs[device_id_param]
 
-                # Cấu hình param nhưng không tìm thấy giá trị hợp lệ -> bắt buộc fail-closed 400
                 if not device_id:
                     return make_error_response(ErrorCode.BAD_REQUEST, ErrorMessage.BAD_REQUEST, 400)
 
-            # Thẩm quyền qua PermissionService
             try:
                 PermissionService.require(
                     code,

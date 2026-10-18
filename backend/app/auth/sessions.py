@@ -5,6 +5,7 @@ Chịu trách nhiệm:
    - Truy vấn scalar column trực tiếp để luôn đọc trạng thái DB hiện tại (không dùng identity map cache).
    - Sử dụng no_autoflush để không tự flush các thay đổi dở dang của caller.
    - So sánh datetime UTC chính xác đến từng microsecond với mốc exp của JWT.
+   - Nạp cờ must_change_password vào request context phục vụ kiểm tra ở guard dùng chung.
 2. Cung cấp helper nội bộ thu hồi session (revoke_session, revoke_all_user_sessions)
    - Sử dụng conditional UPDATE ... WHERE revoked_at IS NULL để bảo đảm tính nguyên tử khi chạy đồng thời.
    - Caller-managed transaction: không tự commit, không xóa row, bảo toàn timestamp/reason cũ.
@@ -69,13 +70,12 @@ def verify_session_and_user(
 
     jwt_exp_dt = datetime.fromtimestamp(exp_ts, tz=timezone.utc)
 
-    # Truy vấn scalar column trực tiếp để luôn đọc dữ liệu tươi từ DB (bỏ qua identity map cache)
-    # và sử dụng no_autoflush để không tự động flush trạng thái đang chờ của caller
     with db_session.no_autoflush:
         row = (
             db_session.query(
                 User.status,
                 User.token_version.label("user_ver"),
+                User.must_change_password.label("must_change_password"),
                 AuthSession.user_id.label("session_user_id"),
                 AuthSession.token_version.label("session_ver"),
                 AuthSession.expires_at,
@@ -121,11 +121,12 @@ def verify_session_and_user(
     if row.role_id is None:
         return None
 
-    # 5. Khởi tạo AuthContext chuẩn bảo mật
+    # 5. Khởi tạo AuthContext chuẩn bảo mật và gắn cờ must_change_password vào request
     from flask import g, request, has_request_context
     req_id = ""
     if has_request_context():
         req_id = getattr(g, "request_id", None) or getattr(request, "request_id", "")
+        request.must_change_password = bool(row.must_change_password)
 
     return AuthContext(
         user_id=sub_uuid,
