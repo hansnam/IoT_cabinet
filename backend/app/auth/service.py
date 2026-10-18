@@ -37,14 +37,21 @@ from backend.app.auth.rate_limit import (
     check_rate_limit,
     compute_rate_limit_keys,
     record_login_attempt,
+    RATE_LIMIT_PURPOSE_CHANGE_PASSWORD,
 )
-from backend.app.auth.sessions import revoke_session
+from backend.app.auth.sessions import revoke_all_user_sessions, revoke_session
 from backend.app.auth.tokens import AccessTokenData, issue_access_token
 from backend.app.models.iam import AuthSession, User
-from backend.app.permissions.service import PermissionService
+from backend.app.permissions.service import (
+    AuthorizationError,
+    AuthRequired,
+    PermissionDenied,
+    PermissionService,
+)
 from backend.app.security.context import AuthContext
 from backend.app.security.messages import ErrorMessage
 from backend.app.user_activity.service import UserActivityService
+
 
 # Khởi tạo hash giả định một lần duy nhất khi nạp module
 DUMMY_PASSWORD_HASH = hash_password("DummySecurePass123!@#")
@@ -61,6 +68,12 @@ class RateLimitExceeded(Exception):
 class AuthenticationFailed(Exception):
     """Ngoại lệ chung cho toàn bộ các trường hợp sai thông tin đăng nhập (HTTP 401)."""
     pass
+
+
+class PasswordUnchangedError(Exception):
+    """Ngoại lệ khi mật khẩu mới trùng khớp mật khẩu hiện tại (HTTP 400)."""
+    pass
+
 
 
 @dataclass(frozen=True)
@@ -391,3 +404,365 @@ class AuthService:
             "role_code": role_code,
             "permissions": permissions,
         }
+    @staticmethod
+    def _lock_user_and_verify_session(
+            db_session: Session,
+            *,
+            actor: AuthContext,
+            permission: str,
+            clock_fn: Any | None = None,
+    ) -> tuple[User, datetime]:
+        """Helper nội bộ dùng chung cho profile và password:
+        - Khóa dòng User của actor bằng SELECT ... FOR UPDATE kèm populate_existing=True.
+        - Lấy mốc thời gian UTC thực tế ngay sau khi SELECT FOR UPDATE trả về.
+        - Kiểm tra User ACTIVE.
+        - Kiểm tra session chưa bị thu hồi, chưa hết hạn theo now_after_lock, token_version khớp.
+        - Tái kiểm tra quyền SELF qua PermissionService.require(permission, ..., now=now_after_lock).
+        - Trả về tuple (user, now_after_lock) đã khóa trong database transaction hiện tại.
+        """
+        user = db_session.execute(
+            select(User)
+            .where(User.id == actor.user_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+
+        # Mốc thời gian UTC thực tế được lấy NGAY SAU KHI SELECT FOR UPDATE trả về
+        if callable(clock_fn):
+            now_after_lock = clock_fn()
+        else:
+            now_after_lock = datetime.now(timezone.utc)
+        if now_after_lock.tzinfo is None:
+            now_after_lock = now_after_lock.replace(tzinfo=timezone.utc)
+
+        if user is None or user.status != "ACTIVE":
+            raise AuthenticationFailed()
+
+        session_row = db_session.execute(
+            select(AuthSession.revoked_at, AuthSession.expires_at, AuthSession.token_version)
+            .where(AuthSession.id == actor.session_id, AuthSession.user_id == actor.user_id)
+        ).first()
+
+        if (
+            session_row is None
+            or session_row.revoked_at is not None
+            or session_row.expires_at <= now_after_lock
+            or session_row.token_version != user.token_version
+            or actor.token_version != user.token_version
+        ):
+            raise AuthenticationFailed()
+
+        PermissionService.require(permission, actor=actor, db_session=db_session, now=now_after_lock)
+        return user, now_after_lock
+
+    @staticmethod
+    def _record_password_change_failure_and_commit(
+            db_session: Session,
+            *,
+            username_key: str,
+            ip_key: str,
+            user_id: UUID,
+            canonical_username: str,
+            client_ip: str,
+            request_id: UUID,
+            failure_code: str,
+            now_utc: datetime,
+            actor: AuthContext | None = None,
+    ) -> None:
+        """Ghi nhận attempt thất bại và nhật ký kiểm toán/làm việc của đổi mật khẩu rồi commit."""
+        record_login_attempt(
+            db_session,
+            username_key=username_key,
+            ip_key=ip_key,
+            user_id=user_id,
+            success=False,
+            failure_code=failure_code,
+            request_id=request_id,
+            occurred_at=now_utc,
+        )
+        AuditService.record(
+            action="USER_PASSWORD_CHANGE",
+            target_type="USER",
+            target_id=str(user_id),
+            success=False,
+            reason_code=failure_code,
+            request_id=request_id,
+            ip_address=client_ip,
+            actor=actor,
+            actor_name_snapshot=canonical_username,
+            detail={"reason": failure_code},
+            db_session=db_session,
+        )
+        UserActivityService.record(
+            function_key="auth.password_change",
+            action="UPDATE",
+            outcome="DENIED",
+            target_type="USER",
+            target_id=str(user_id),
+            target_name_snapshot=canonical_username,
+            actor=actor,
+            actor_name_snapshot=canonical_username,
+            request_id=request_id,
+            summary_params={},
+            error_code=failure_code,
+            metadata={"reason": failure_code},
+            db_session=db_session,
+        )
+        db_session.commit()
+
+    @staticmethod
+    def update_profile(
+            *,
+            actor: AuthContext,
+            full_name: str,
+            request_id: UUID | str,
+            db_session: Session,
+            clock_fn: Any | None = None,
+    ) -> dict:
+        """Cập nhật thông tin hồ sơ cá nhân (PATCH /api/v1/auth/me).
+        - Chỉ cập nhật tên của chính actor hiện tại.
+        - Khóa dòng User bằng SELECT ... FOR UPDATE kèm populate_existing=True.
+        - Mốc expiry và kiểm tra session lấy NGAY SAU KHI CÓ KHÓA (now_after_lock).
+        - Tái kiểm tra quyền profile.update sau khi có khóa (chống race condition thu quyền).
+        - Ghi audit_logs và user_activity_logs trong cùng transaction.
+        - Trả về thông tin người dùng theo allowlist 03B.
+        """
+        req_uuid = UUID(str(request_id)) if not isinstance(request_id, UUID) else request_id
+        trimmed_name = full_name.strip()
+
+        # 1. Khóa User, đo clock ngay sau khi có khóa, kiểm tra session và tái kiểm tra quyền profile.update
+        user, now_after_lock = AuthService._lock_user_and_verify_session(
+            db_session,
+            actor=actor,
+            permission="profile.update",
+            clock_fn=clock_fn,
+        )
+
+        role_code = PermissionService.get_user_role(user.id, db_session=db_session)
+        if not role_code:
+            raise AuthenticationFailed()
+
+        # 2. Cập nhật họ tên với mốc thời gian sau lock
+        user.full_name = trimmed_name
+        user.updated_at = now_after_lock
+
+        # 3. Ghi nhận audit_logs và user_activity_logs (cùng transaction)
+        AuditService.record(
+            action="USER_UPDATE",
+            target_type="USER",
+            target_id=str(user.id),
+            success=True,
+            request_id=req_uuid,
+            actor=actor,
+            actor_name_snapshot=user.username,
+            detail={"target_username": user.username, "fields": ["full_name"]},
+            db_session=db_session,
+        )
+
+        UserActivityService.record(
+            function_key="user.update",
+            action="UPDATE",
+            outcome="SUCCESS",
+            target_type="USER",
+            target_id=str(user.id),
+            target_name_snapshot=user.username,
+            actor=actor,
+            actor_name_snapshot=user.username,
+            request_id=req_uuid,
+            summary_params={"target_username": user.username},
+            metadata={"target_username": user.username, "fields": ["full_name"]},
+            db_session=db_session,
+        )
+
+        # 4. Commit nguyên tử
+        db_session.commit()
+
+        return {
+            "id": str(user.id),
+            "username": user.username,
+            "full_name": user.full_name,
+            "status": user.status,
+            "must_change_password": bool(user.must_change_password),
+            "role_code": role_code,
+        }
+
+    @staticmethod
+    def change_password(
+            *,
+            actor: AuthContext,
+            old_password: str,
+            new_password: str,
+            client_ip: str,
+            request_id: UUID | str,
+            db_session: Session,
+            clock_fn: Any | None = None,
+            current_time: datetime | None = None,
+    ) -> bool:
+        """Đổi mật khẩu người dùng (POST /api/v1/auth/change-password).
+        - Lock order: Advisory rate keys trước -> User FOR UPDATE sau.
+        - Tách bạch mốc rate limit (pre-lock) và mốc auth recheck (after-lock).
+        - Kiểm tra rate limit trên LoginAttempt với purpose riêng ('change-password').
+        - Khóa User FOR UPDATE, lấy clock ngay sau khóa, recheck user ACTIVE, session chưa revoked, token_version khớp.
+        - Tái kiểm tra quyền password.change sau khi có khóa.
+        - Từ chối nếu mật khẩu mới trùng mật khẩu hiện tại (HTTP 400).
+        - Xác minh old_password bằng Argon2id helper.
+        - Thu hồi toàn bộ session của user qua revoke_all_user_sessions.
+        """
+        now_pre_lock = current_time or (clock_fn() if callable(clock_fn) else datetime.now(timezone.utc))
+        if now_pre_lock.tzinfo is None:
+            now_pre_lock = now_pre_lock.replace(tzinfo=timezone.utc)
+
+        req_uuid = UUID(str(request_id)) if not isinstance(request_id, UUID) else request_id
+
+        # 1. Tra cứu username của actor để tạo rate limit keys
+        username_val = db_session.execute(
+            select(User.username).where(User.id == actor.user_id)
+        ).scalar_one_or_none()
+
+        if username_val is None:
+            raise AuthenticationFailed()
+
+        canonical_username = username_val.strip().lower()
+
+        # 2. Tính khóa rate limit phân tách domain bằng purpose riêng
+        username_key, ip_key = compute_rate_limit_keys(
+            canonical_username,
+            client_ip,
+            purpose=RATE_LIMIT_PURPOSE_CHANGE_PASSWORD,
+        )
+
+        # 3. Khóa Transaction Advisory Locks theo thứ tự tăng dần cố định
+        acquire_rate_limit_advisory_locks(db_session, username_key, ip_key)
+
+        # 4. Kiểm tra rate limit (5 lỗi / user, 20 lỗi / IP / 15 phút) tại mốc pre-lock
+        is_limited, retry_after = check_rate_limit(db_session, username_key, ip_key, now=now_pre_lock)
+        if is_limited:
+            AuthService._record_password_change_failure_and_commit(
+                db_session,
+                username_key=username_key,
+                ip_key=ip_key,
+                user_id=actor.user_id,
+                canonical_username=canonical_username,
+                client_ip=client_ip,
+                request_id=req_uuid,
+                failure_code=AuthFailureCode.RATE_LIMITED,
+                now_utc=now_pre_lock,
+                actor=actor,
+            )
+            raise RateLimitExceeded(retry_after)
+
+        # 5. Khóa User FOR UPDATE, lấy clock NGAY SAU KHI KHÓA, kiểm tra session và tái kiểm tra quyền password.change
+        try:
+            user, now_after_lock = AuthService._lock_user_and_verify_session(
+                db_session,
+                actor=actor,
+                permission="password.change",
+                clock_fn=clock_fn,
+            )
+        except AuthorizationError as e:
+            failure_code = "PERMISSION_DENIED" if isinstance(e, PermissionDenied) else AuthFailureCode.INVALID_CREDENTIALS
+            AuthService._record_password_change_failure_and_commit(
+                db_session,
+                username_key=username_key,
+                ip_key=ip_key,
+                user_id=actor.user_id,
+                canonical_username=canonical_username,
+                client_ip=client_ip,
+                request_id=req_uuid,
+                failure_code=failure_code,
+                now_utc=now_pre_lock,
+                actor=actor,
+            )
+            raise
+        except AuthenticationFailed:
+            AuthService._record_password_change_failure_and_commit(
+                db_session,
+                username_key=username_key,
+                ip_key=ip_key,
+                user_id=actor.user_id,
+                canonical_username=canonical_username,
+                client_ip=client_ip,
+                request_id=req_uuid,
+                failure_code=AuthFailureCode.INVALID_CREDENTIALS,
+                now_utc=now_pre_lock,
+                actor=actor,
+            )
+            raise
+
+        # 6. Từ chối nếu mật khẩu mới trùng mật khẩu cũ trước khi thay đổi (P1 requirement)
+        if old_password == new_password:
+            raise PasswordUnchangedError()
+
+        # 7. Xác minh mật khẩu cũ bằng helper Argon2id
+        is_valid = verify_password(old_password, user.password_hash)
+        if not is_valid:
+            AuthService._record_password_change_failure_and_commit(
+                db_session,
+                username_key=username_key,
+                ip_key=ip_key,
+                user_id=user.id,
+                canonical_username=canonical_username,
+                client_ip=client_ip,
+                request_id=req_uuid,
+                failure_code=AuthFailureCode.INVALID_CREDENTIALS,
+                now_utc=now_after_lock,
+                actor=actor,
+            )
+            raise AuthenticationFailed()
+
+        # 8. Mật khẩu cũ đúng: Tạo hash mới và nâng version
+        new_hash = hash_password(new_password)
+        user.password_hash = new_hash
+        user.must_change_password = False
+        user.password_changed_at = now_after_lock
+        user.token_version = (user.token_version or 0) + 1
+        user.updated_at = now_after_lock
+
+        # 9. Thu hồi toàn bộ session của người dùng (kể cả phiên hiện tại)
+        revoke_all_user_sessions(
+            user_id=user.id,
+            reason="Password changed",
+            db_session=db_session,
+        )
+
+        # 10. Ghi nhận attempt thành công và logs
+        record_login_attempt(
+            db_session,
+            username_key=username_key,
+            ip_key=ip_key,
+            user_id=user.id,
+            success=True,
+            failure_code=None,
+            request_id=req_uuid,
+            occurred_at=now_after_lock,
+        )
+        AuditService.record(
+            action="USER_PASSWORD_CHANGE",
+            target_type="USER",
+            target_id=str(user.id),
+            success=True,
+            request_id=req_uuid,
+            ip_address=client_ip,
+            actor=actor,
+            actor_name_snapshot=user.username,
+            detail={"reason": "Password changed"},
+            db_session=db_session,
+        )
+        UserActivityService.record(
+            function_key="auth.password_change",
+            action="UPDATE",
+            outcome="SUCCESS",
+            target_type="USER",
+            target_id=str(user.id),
+            target_name_snapshot=user.username,
+            actor=actor,
+            actor_name_snapshot=user.username,
+            request_id=req_uuid,
+            summary_params={},
+            metadata={"reason": "Password changed"},
+            db_session=db_session,
+        )
+
+        # 11. Commit nguyên tử toàn bộ thay đổi
+        db_session.commit()
+        return True

@@ -28,6 +28,8 @@ RATE_LIMIT_WINDOW_SECONDS = 900  # 15 phút
 MAX_FAILED_ATTEMPTS_USERNAME = 5  # Tối đa 5 lần thử sai cho cùng một tài khoản
 MAX_FAILED_ATTEMPTS_IP = 20  # Tối đa 20 lần thử sai cho cùng một địa chỉ IP
 RATE_LIMIT_PURPOSE = "login"  # Phân tách domain cho mục đích đăng nhập
+RATE_LIMIT_PURPOSE_CHANGE_PASSWORD = "change-password"  # Phân tách domain cho mục đích đổi mật khẩu (TV3-03C)
+
 
 
 def compute_rate_limit_keys(

@@ -29,6 +29,14 @@ class AuthMessage(StrEnum):
     USERNAME_INVALID_TYPE = "Username must be a string"
     USERNAME_FORMAT_INVALID = "Username must be 3-64 characters, lowercase alphanumeric, underscore, dot or hyphen"
 
+    # Profile & Password change messages (TV3-03C)
+    FULL_NAME_REQUIRED = "Full name is required"
+    FULL_NAME_INVALID_TYPE = "Full name must be a string"
+    FULL_NAME_LENGTH_INVALID = "Full name must be between 1 and 128 characters"
+    OLD_PASSWORD_REQUIRED = "Old password is required"
+    NEW_PASSWORD_REQUIRED = "New password is required"
+    NEW_PASSWORD_SAME_AS_OLD = "New password must be different from current password"
+
 
 class AuthFailureCode(StrEnum):
     """Mã định danh lý do đăng nhập thất bại phục vụ rate limiting và audit logging (TV3-03B)."""

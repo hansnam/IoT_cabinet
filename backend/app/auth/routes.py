@@ -11,20 +11,32 @@ from flask import Blueprint, g, jsonify, request
 from marshmallow import ValidationError
 from sqlalchemy.exc import InterfaceError, OperationalError, TimeoutError as SQLAlchemyTimeoutError
 
-from backend.app.auth.schemas import LoginRequestSchema
-from backend.app.auth.service import AuthService, AuthenticationFailed, RateLimitExceeded
+from backend.app.auth.schemas import (
+    ChangePasswordRequestSchema,
+    LoginRequestSchema,
+    UpdateProfileRequestSchema,
+)
+from backend.app.auth.service import (
+    AuthService,
+    AuthenticationFailed,
+    PasswordUnchangedError,
+    RateLimitExceeded,
+)
 from backend.app.extensions import db
-from backend.app.permissions.decorators import require_auth
+from backend.app.permissions.decorators import require_auth, require_permission
+from backend.app.permissions.service import AuthorizationError, AuthRequired, PermissionDenied
 from backend.app.security.errors import make_error_response
 from backend.app.security.messages import ErrorCode, ErrorMessage
 from backend.app.security.request_context import require_auth_origin
+
 
 # Danh sách lỗi mất kết nối DB chuyển thành 503 Service Unavailable
 DB_UNAVAILABLE_ERRORS = (OperationalError, InterfaceError, SQLAlchemyTimeoutError)
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/v1/auth")
 login_schema = LoginRequestSchema()
-
+update_profile_schema = UpdateProfileRequestSchema()
+change_password_schema = ChangePasswordRequestSchema()
 
 @auth_bp.route("/login", methods=["POST"])
 def login():
@@ -137,4 +149,115 @@ def me():
 
     return jsonify({
         "data": user_info
+    }), 200
+
+@auth_bp.route("/me", methods=["PATCH"])
+@require_permission("profile.update")
+def update_profile():
+    """PATCH /api/v1/auth/me
+    Cập nhật tên đầy đủ (full_name) của chính tài khoản hiện tại.
+    """
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return make_error_response(ErrorCode.BAD_REQUEST, ErrorMessage.BAD_REQUEST, 400)
+
+    try:
+        validated_data = update_profile_schema.load(payload)
+    except ValidationError:
+        return make_error_response(ErrorCode.BAD_REQUEST, ErrorMessage.BAD_REQUEST, 400)
+
+    auth_context = request.auth
+    request_id = getattr(request, "request_id", None) or getattr(g, "request_id", None)
+
+    try:
+        user_info = AuthService.update_profile(
+            actor=auth_context,
+            full_name=validated_data["full_name"],
+            request_id=request_id,
+            db_session=db.session,
+        )
+    except PermissionDenied as e:
+        return make_error_response(e.code, e.message, e.status_code)
+    except AuthRequired:
+        return make_error_response(ErrorCode.UNAUTHORIZED, ErrorMessage.UNAUTHORIZED, 401)
+    except AuthorizationError as e:
+        return make_error_response(e.code, e.message, e.status_code)
+    except AuthenticationFailed:
+        return make_error_response(ErrorCode.UNAUTHORIZED, ErrorMessage.UNAUTHORIZED, 401)
+    except DB_UNAVAILABLE_ERRORS:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return make_error_response(ErrorCode.SERVICE_UNAVAILABLE, ErrorMessage.SERVICE_UNAVAILABLE, 503)
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return make_error_response(ErrorCode.INTERNAL_SERVER_ERROR, ErrorMessage.INTERNAL_SERVER_ERROR, 500)
+
+    return jsonify({
+        "data": user_info
+    }), 200
+
+@auth_bp.route("/change-password", methods=["POST"])
+@require_permission("password.change")
+def change_password():
+    """POST /api/v1/auth/change-password
+    Đổi mật khẩu người dùng, thu hồi toàn bộ session và yêu cầu đăng nhập lại.
+    """
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return make_error_response(ErrorCode.BAD_REQUEST, ErrorMessage.BAD_REQUEST, 400)
+
+    try:
+        validated_data = change_password_schema.load(payload)
+    except ValidationError:
+        return make_error_response(ErrorCode.BAD_REQUEST, ErrorMessage.BAD_REQUEST, 400)
+
+    auth_context = request.auth
+    client_ip = request.remote_addr or "127.0.0.1"
+    request_id = getattr(request, "request_id", None) or getattr(g, "request_id", None)
+
+    try:
+        AuthService.change_password(
+            actor=auth_context,
+            old_password=validated_data["old_password"],
+            new_password=validated_data["new_password"],
+            client_ip=client_ip,
+            request_id=request_id,
+            db_session=db.session,
+        )
+    except RateLimitExceeded as e:
+        response, status = make_error_response(ErrorCode.TOO_MANY_REQUESTS, ErrorMessage.TOO_MANY_REQUESTS, 429)
+        response.headers["Retry-After"] = str(e.retry_after)
+        return response, status
+    except PasswordUnchangedError:
+        return make_error_response(ErrorCode.BAD_REQUEST, ErrorMessage.BAD_REQUEST, 400)
+    except PermissionDenied as e:
+        return make_error_response(e.code, e.message, e.status_code)
+    except AuthRequired:
+        return make_error_response(ErrorCode.UNAUTHORIZED, ErrorMessage.UNAUTHORIZED, 401)
+    except AuthorizationError as e:
+        return make_error_response(e.code, e.message, e.status_code)
+    except AuthenticationFailed:
+        return make_error_response(ErrorCode.UNAUTHORIZED, ErrorMessage.UNAUTHORIZED, 401)
+    except DB_UNAVAILABLE_ERRORS:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return make_error_response(ErrorCode.SERVICE_UNAVAILABLE, ErrorMessage.SERVICE_UNAVAILABLE, 503)
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return make_error_response(ErrorCode.INTERNAL_SERVER_ERROR, ErrorMessage.INTERNAL_SERVER_ERROR, 500)
+
+    return jsonify({
+        "data": {
+            "login_required": True
+        }
     }), 200
