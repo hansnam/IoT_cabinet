@@ -26,6 +26,7 @@ import json
 import hashlib
 from pathlib import Path
 
+
 # Đảm bảo import được module từ thư mục gốc
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
@@ -66,6 +67,7 @@ def run_seed():
         for code, name, desc in roles_data:
             role = Role.query.filter_by(code=code).first()
             if not role:
+                # pyrefly: ignore [unexpected-keyword]
                 role = Role(code=code, name=name, description=desc, is_system=True)
                 db.session.add(role)
                 db.session.flush()
@@ -120,6 +122,7 @@ def run_seed():
         for code, scope, desc in permissions_data:
             perm = Permission.query.filter_by(code=code).first()
             if not perm:
+                # pyrefly: ignore [unexpected-keyword]
                 perm = Permission(code=code, scope_type=scope, description=desc)
                 db.session.add(perm)
                 db.session.flush()
