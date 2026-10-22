@@ -1,4 +1,4 @@
-"""
-Telemetry Package (Thành viên 2 chủ trì)
-Tra cứu số đo nhiệt độ, độ ẩm mới nhất (latest), lịch sử, thống kê min/max/avg và export CSV.
-"""
+from backend.app.telemetry.routes import telemetry_bp
+from backend.app.telemetry.service import TelemetryService
+
+__all__ = ["telemetry_bp", "TelemetryService"]
