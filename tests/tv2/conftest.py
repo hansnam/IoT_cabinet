@@ -1,10 +1,28 @@
 """Test fixtures for TV2 test suite (isolated SAVEPOINT transactions on iot_cabinet_test)."""
 import os
 import secrets
+from pathlib import Path
 import pytest
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, scoped_session
+
+# Load backend/.env if present so DATABASE_URL is available automatically
+_BACKEND_ENV_PATH = Path(__file__).resolve().parent.parent.parent / "backend" / ".env"
+if _BACKEND_ENV_PATH.exists():
+    load_dotenv(_BACKEND_ENV_PATH, override=False)
+
+if os.getenv("DATABASE_URL") and not os.getenv("TEST_DATABASE_URL"):
+    _main_url = make_url(os.getenv("DATABASE_URL"))
+    os.environ["TEST_DATABASE_URL"] = _main_url.set(database="iot_cabinet_test").render_as_string(
+        hide_password=False
+    )
+
+if not os.getenv("AUTH_ALLOWED_ORIGINS"):
+    os.environ["AUTH_ALLOWED_ORIGINS"] = "http://localhost:5173"
+if not os.getenv("CORS_ALLOWED_ORIGINS"):
+    os.environ["CORS_ALLOWED_ORIGINS"] = "http://localhost:5173"
 
 from backend.app import create_app
 from backend.app.extensions import db
