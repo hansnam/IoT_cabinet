@@ -70,9 +70,11 @@ def create_app(config_name=None, test_config=None):
 def register_blueprints(app):
     """Đăng ký các Blueprints chức năng"""
     from backend.app.auth.routes import auth_bp
+    from backend.app.commands.routes import commands_bp
     from backend.app.devices.routes import devices_bp
     from backend.app.telemetry.routes import telemetry_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(devices_bp)
     app.register_blueprint(telemetry_bp)
+    app.register_blueprint(commands_bp)

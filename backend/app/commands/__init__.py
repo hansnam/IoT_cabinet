@@ -1,5 +1,4 @@
-"""
-Commands Package (Thành viên 2 chủ trì)
-Khởi tạo và quản lý lệnh điều khiển (SET_MODE, SET_FAN, APPLY_CONFIG),
-ghi nhận attempts, timeout, idempotency key.
-"""
+from backend.app.commands.routes import commands_bp
+from backend.app.commands.service import CommandService
+
+__all__ = ["commands_bp", "CommandService"]
