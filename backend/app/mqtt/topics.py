@@ -70,3 +70,4 @@ def build_commands_topic(device_id: str) -> str:
 
 def build_acks_topic(device_id: str) -> str:
     return f"{TOPIC_PREFIX}/{device_id}/acks"
+

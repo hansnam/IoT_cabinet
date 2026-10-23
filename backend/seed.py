@@ -26,8 +26,8 @@ import json
 import re
 import hashlib
 from pathlib import Path
-from flask import current_app, has_app_context
-from sqlalchemy import func
+from flask import current_app, has_app_context # type: ignore
+from sqlalchemy import func # type: ignore
 
 
 # Đảm bảo import được module từ thư mục gốc

@@ -1169,3 +1169,4 @@ class MqttIngestService:
             channel="acks",
             command_id=command.command_id,
         )
+

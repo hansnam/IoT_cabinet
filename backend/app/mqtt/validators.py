@@ -580,3 +580,4 @@ def validate_ack_payload(topic_device_id: str, payload: dict[str, Any]) -> dict[
         "result": result or {},
         "error_code": error_code,
     }
+

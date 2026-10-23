@@ -16,3 +16,4 @@ __all__ = ["MqttWorkerRunner", "handle_shutdown", "run_worker"]
 
 if __name__ == "__main__":
     run_worker()
+
