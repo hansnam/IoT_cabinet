@@ -36,16 +36,16 @@ from flask import jsonify
 from sqlalchemy import text
 from sqlalchemy.exc import InterfaceError, OperationalError, TimeoutError as SQLAlchemyTimeoutError
 
-from backend.app.auth.sessions import (
+from back.backend.app.auth.sessions import (
     revoke_all_user_sessions,
     revoke_session,
     verify_session_and_user,
 )
-from backend.app.auth.tokens import issue_access_token
-from backend.app.models.iam import AuthSession, Role, User, UserRole
-from backend.app.permissions.decorators import require_auth
-from backend.app.security.context import AuthContext, get_current_auth
-from backend.app.security.messages import ErrorCode, ErrorMessage
+from back.backend.app.auth.tokens import issue_access_token
+from back.backend.app.models.iam import AuthSession, Role, User, UserRole
+from back.backend.app.permissions.decorators import require_auth
+from back.backend.app.security.context import AuthContext, get_current_auth
+from back.backend.app.security.messages import ErrorCode, ErrorMessage
 
 
 # ==============================================================================

@@ -11,19 +11,19 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
-from backend.app.commands.schemas import build_controller_config_snapshot
-from backend.app.models.command import Command, CommandAttempt, OutboxMessage
-from backend.app.models.device import Device, DeviceAccess, DeviceConfig
-from backend.app.models.iam import AuthSession, Permission, Role, RolePermission, User, UserRole
-from backend.app.models.telemetry import DeviceEvent, DeviceShadow, Telemetry
-from backend.app.mqtt.dispatcher import MqttDispatcherService
-from backend.app.mqtt.ingest import MqttIngestService
-from backend.app.mqtt.topics import (
+from back.backend.app.commands.schemas import build_controller_config_snapshot
+from back.backend.app.models.command import Command, CommandAttempt, OutboxMessage
+from back.backend.app.models.device import Device, DeviceAccess, DeviceConfig
+from back.backend.app.models.iam import AuthSession, Permission, Role, RolePermission, User, UserRole
+from back.backend.app.models.telemetry import DeviceEvent, DeviceShadow, Telemetry
+from back.backend.app.mqtt.dispatcher import MqttDispatcherService
+from back.backend.app.mqtt.ingest import MqttIngestService
+from back.backend.app.mqtt.topics import (
     build_acks_topic,
     build_status_topic,
     build_telemetry_topic,
 )
-from backend.app.outbox.service import OutboxService
+from back.backend.app.outbox.service import OutboxService
 
 
 def _enqueue_test_command(

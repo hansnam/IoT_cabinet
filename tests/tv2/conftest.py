@@ -24,9 +24,9 @@ if not os.getenv("AUTH_ALLOWED_ORIGINS"):
 if not os.getenv("CORS_ALLOWED_ORIGINS"):
     os.environ["CORS_ALLOWED_ORIGINS"] = "http://localhost:5173"
 
-from backend.app import create_app
-from backend.app.extensions import db
-from backend.app.security.messages import ErrorMessage
+from back.backend.app import create_app
+from back.backend.app.extensions import db
+from back.backend.app.security.messages import ErrorMessage
 
 TEST_DB_ALLOWLIST = frozenset({"iot_cabinet_test"})
 
