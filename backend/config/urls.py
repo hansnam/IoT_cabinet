@@ -16,7 +16,19 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path
+from apps.core.views import health_live, health_ready
 
 urlpatterns = [
+    # Health checks
+    path('health/live', health_live, name='health_live'),
+    path('health/ready', health_ready, name='health_ready'),
+
+    # Django Admin site
     path('admin/', admin.site.urls),
 ]
+
+# Khai báo các handler lỗi toàn cục trả về JSON envelope
+handler400 = 'apps.core.errors.handler400'
+handler403 = 'apps.core.errors.handler403'
+handler404 = 'apps.core.errors.handler404'
+handler500 = 'apps.core.errors.handler500'

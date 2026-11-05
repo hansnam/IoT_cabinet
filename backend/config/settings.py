@@ -57,9 +57,11 @@ INSTALLED_APPS = [
     # Dự án IoT Cabinet Apps
     'apps.core.apps.CoreConfig',
     'apps.accounts.apps.AccountsConfig',
+    'apps.audit.apps.AuditConfig'
 ]
 
 MIDDLEWARE = [
+    'apps.core.middleware.RequestIDAndSecurityHeadersMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -68,6 +70,8 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+CSRF_FAILURE_VIEW = 'apps.core.errors.csrf_failure'
 
 ROOT_URLCONF = 'config.urls'
 
@@ -171,6 +175,13 @@ AUTH_LOG_HMAC_KEY = os.getenv(
     'ecbf305c5a9a2b1fc6c6a1ad9a7f104eebf620c49b2cb17eebe10c08367cba2b'
 )
 
+# Django REST Framework Configuration
+REST_FRAMEWORK = {
+    'EXCEPTION_HANDLER': 'apps.core.errors.custom_exception_handler',
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+}
 
 # Test Runner Guard
 TEST_RUNNER = 'apps.core.test_runner.DatabaseGuardTestRunner'
