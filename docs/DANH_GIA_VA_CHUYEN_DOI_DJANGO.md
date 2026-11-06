@@ -64,7 +64,7 @@ Flask không phải Python thuần; nó chủ động cung cấp nền nhỏ. Nh
 
 Port phần ít phụ thuộc trước: topic/parser/range/hash/fixtures và thuật toán TTL/dedup; sau đó models/queries/transactions và DRF views. Mã đang import db.session/app_context/Flask-JWT không copy nguyên sang Django. Permission helpers, outbox lease và service có ORM phải viết adapter/query mới rồi kiểm theo ca cũ.
 
-Giữ code/DB Flask làm nguồn tham khảo. Một worker sở hữu ingest/dispatch tại một thời điểm. Không dùng Alembic tạo schema Django, không dual-write, không cố chạy hai backend trên cùng bảng để giảm công import. Rollback có quy trình giữ dữ liệu mới trước khi quay lại.
+Cấu trúc đích: Django đặt trực tiếp backend/ với manage.py, config/ và apps/; source Flask lưu nguyên tại back/backend/, tests cũ tại back/tests/, có README riêng. Việc lưu bản cũ do người thực hiện tiến hành sau khi chốt, chưa di chuyển trong lần sửa tài liệu. Giữ DB Flask làm nguồn đối chiếu. Một worker sở hữu ingest/dispatch tại một thời điểm. Không dùng Alembic tạo schema Django, không dual-write, không cố chạy hai backend trên cùng bảng để giảm công import. Rollback có quy trình giữ dữ liệu mới trước khi quay lại.
 
 AI có ích khi task rõ, ví dụ “port telemetry validator giữ nguyên fixture”, “tạo serializer với fields allowlist”, “viết admin action gọi service”. Mỗi PR phải có người đọc/test; người nộp phải giải thích được luồng quyền, transaction, ACK và safety. Không giao AI yêu cầu chung “viết toàn bộ hệ thống” rồi nối các kết quả bằng thay contract.
 

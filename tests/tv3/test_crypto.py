@@ -21,23 +21,23 @@ from flask import jsonify
 import jwt as pyjwt
 from flask_jwt_extended import create_access_token, get_jwt, jwt_required
 
-from backend.app.auth.messages import AuthMessage
-from backend.app.auth.passwords import (
+from back.backend.app.auth.messages import AuthMessage
+from back.backend.app.auth.passwords import (
     hash_password,
     needs_rehash,
     validate_password_complexity,
     verify_and_rehash,
     verify_password,
 )
-from backend.app.auth.tokens import (
+from back.backend.app.auth.tokens import (
     AccessTokenData,
     decode_and_verify_access_token,
     is_valid_access_token_claims,
     issue_access_token,
     validate_access_token_claims,
 )
-from backend.app.extensions import get_password_hasher
-from backend.app.security.messages import ErrorCode, ErrorMessage
+from back.backend.app.extensions import get_password_hasher
+from back.backend.app.security.messages import ErrorCode, ErrorMessage
 
 
 # ==============================================================================

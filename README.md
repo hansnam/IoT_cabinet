@@ -1,6 +1,6 @@
 # Hệ Thống IoT Giám Sát Nhiệt Độ, Độ Ẩm và Điều Khiển Thông Gió Tủ Thiết Bị Mạng
 
-> **Kế hoạch hiện hành (04/11/2026):** nhóm chuyển sang Django + Django REST Framework, dùng Django Admin và session/CSRF theo [đặc tả V1.4](docs/IOT_TU_THIET_BI_DAC_TA_CHUNG_V1_3.md) và [đánh giá chuyển đổi](docs/DANH_GIA_VA_CHUYEN_DOI_DJANGO.md). Mã nguồn và hướng dẫn chạy bên dưới hiện vẫn là Flask; lần này mới cập nhật tài liệu. Bản tại `Description/` là tài liệu lịch sử.
+> **Kế hoạch hiện hành (04/11/2026):** nhóm chuyển sang Django + Django REST Framework, dùng Django Admin và session/CSRF theo [đặc tả V1.4](docs/IOT_TU_THIET_BI_DAC_TA_CHUNG_V1_3.md) và [đánh giá chuyển đổi](docs/DANH_GIA_VA_CHUYEN_DOI_DJANGO.md). Mã nguồn và hướng dẫn chạy bên dưới hiện vẫn là Flask; lần này mới cập nhật tài liệu. Bản tại `Description/` là tài liệu lịch sử. Cấu trúc đích đặt Django trực tiếp trong `backend/` (`manage.py`, `config/`, `apps/`), bản Flask sẽ lưu riêng tại `back/`; hiện chưa di chuyển source.
 
 Dự án phát triển hệ thống nhúng và phần mềm quản lý, giám sát môi trường và tự động điều khiển quạt thông gió trong tủ mạng viễn thông / máy chủ (P0 Scope).
 

@@ -5,11 +5,11 @@ from unittest.mock import MagicMock
 from uuid import UUID
 import pytest
 from flask import abort, g, request
-from backend.app import create_app
-from backend.app.extensions import db
-from backend.app.security import require_auth_origin
-from backend.app.security.config_validation import validate_config
-from backend.app.security.messages import ErrorCode, ErrorMessage
+from back.backend.app import create_app
+from back.backend.app.extensions import db
+from back.backend.app.security import require_auth_origin
+from back.backend.app.security.config_validation import validate_config
+from back.backend.app.security.messages import ErrorCode, ErrorMessage
 
 
 @pytest.mark.parametrize("environment", ["development", "testing", "production", "release"])

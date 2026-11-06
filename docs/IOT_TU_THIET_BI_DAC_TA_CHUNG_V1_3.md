@@ -62,7 +62,7 @@ Thiếu thời gian thì cắt hiệu ứng UI, màn quản trị tùy biến v�
 | Thiết bị | ESP32 DevKit WROOM-32 hiện có | Giữ bo/pinout đã kiểm, không đổi phần cứng theo framework |
 | Firmware | Arduino/C++; DHT library + Unified Sensor; PubSubClient; ArduinoJson; Preferences | Pin version đã build; reconnect không dừng AUTO |
 | Broker | Mosquitto 2.x + Dynamic Security đã thử | Credential riêng, exact ACL, disable/disconnect/reconnect denial |
-| Backend | **Python 3.12 hoặc 3.13 + Django 5.2 LTS + DRF** | ORM/migrations/auth/admin sẵn; pin bản vá 5.2.x và DRF tương thích sau build thử |
+| Backend | **Python 3.14 + Django 5.2 LTS (từ 5.2.8) + DRF** | Máy TV3 đã cài Python3.14.10/Django5.2.19/DRF3.18.3 vào venv; import/pip check đạt, tests ứng dụng còn phải chạy; pin bộ version chung trước tích hợp |
 | API | DRF serializers, GenericViewSet/mixins/router, permission classes | CRUD dùng sẵn; lệnh/lifecycle gọi service; không PATCH state trực tiếp |
 | Tài khoản | AbstractUser; Groups/Permissions; DB sessions; CSRF | AUTH_USER_MODEL trước migration đầu; không hai hệ auth/role |
 | Password | Django Argon2PasswordHasher + argon2-cffi | set_password/check_password/validators; không dùng hasher thô của Flask làm hệ auth mới |
@@ -557,6 +557,8 @@ Poll 2s khi màn mở, dừng khi NOT_AUTHENTICATED; history theo khoảng. Sour
 
 ## 10. Phân công 4 người và bàn giao
 
+Hướng dẫn thực hiện riêng TV3: [kế hoạch Django cho Gemini](TV3_KE_HOACH_DJANGO_CHO_GEMINI.md), gồm kiểm kê mã, cấu trúc theo app/lớp và 12 chặng. Mỗi lượt Gemini chỉ xuất một phần code vừa đủ kèm giải thích trong chat; TV3 tự copy/chạy, review và dừng trước phần tiếp.
+
 | Người | Sở hữu chính | Bàn giao trong 48h đầu | Phối hợp |
 |---|---|---|---|
 | TV1 — firmware/phần cứng | DHT/relay/AUTO/NVS/MQTT v3/ACK/reconnect | Bo đo thật, AUTO, publish đúng fixture | TV2 command/config; TV3 credential/TLS; BOM/ảnh |
@@ -575,34 +577,36 @@ TV4 không gánh một mình frontend+alerts+deployment+toàn báo cáo. Mỗi n
 ### 10.1 Cấu trúc đích chuyển đổi
 
 ```text
-backend/                    # Theo cấu trúc repo bắt buộc ở PDF 8.1
-  app/                      # Flask hiện có, giữ tham khảo/rollback
-  migrations/               # Alembic cũ, không quản lý schema Django
-  workers/                  # Entrypoints Flask cũ
-  django/                   # Đích sẽ tạo, hiện chưa có
-    manage.py
-    config/                 # settings, urls, wsgi
-    apps/
-      accounts/             # User, registry, limiter, admin
-      devices/              # lifecycle/config/access/models/admin
-      telemetry/            # ingest/history/validators
-      commands/             # outbox/ACK/retry
-      alerts/               # evaluation/incidents
-      audit/                # một nguồn nhật ký
-      mqtt/                 # topics/client/dispatcher/broker adapter
-      core/                 # errors/pagination/health/management commands
-    requirements.txt
+back/                       # Bản lưu Flask, chưa di chuyển ở lần sửa tài liệu này
+  backend/                  # Giữ nguyên app/migrations/workers/seed/requirements cũ
+  tests/                    # Tests Flask tv2/tv3 cũ
+  database/                 # Schema SQL cũ cần tham khảo
+  README.md                 # Snapshot và cách kiểm bản cũ
+backend/                    # Backend chính, Django trực tiếp tại đây
+  manage.py
+  requirements.txt
+  .env.example
+  config/                   # settings, urls, wsgi
+  apps/
+    accounts/               # models/serializers/views/services/policies/forms
+    devices/                # lifecycle/config/access/models/admin
+    telemetry/              # ingest/history/validators
+    commands/               # outbox/ACK/retry
+    alerts/                 # evaluation/incidents
+    audit/                  # một nguồn nhật ký
+    mqtt/                   # topics/client/dispatcher/broker adapter
+    core/                   # errors/pagination/health/management commands
 frontend/                   # Giữ React, đổi auth/fetch adapter
 firmware/
 hardware/
-database/                   # ERD/dictionary/import mapping
-deployment/                 # Compose/proxy/Mosquitto
-tests/                      # Test cũ giữ, test Django không import Flask
+database/                   # ERD/dictionary/import mapping của hệ thống mới
+deployment/                 # Compose/proxy/Mosquitto hiện hành
+tests/                      # Kịch bản tích hợp chung, không chứa Flask tests đã archive
 docs/                       # Đặc tả đích và đánh giá
 Description/                # Tài liệu lịch sử
 ```
 
-Migrations ở từng app Django; management commands dùng chung settings/models. Sau cutover một backend phục vụ frontend/workers, không dual-write. Chưa cần xóa/đổi tên backend cũ trong tuần.
+Migrations ở từng app Django; management commands dùng chung settings/models. Django đặt thẳng backend/, không thêm tầng tên framework. Trước khi tạo mã mới, người thực hiện lưu nguyên backend Flask vào back/backend và tests cũ vào back/tests; phân loại SQL/tài liệu cần giữ, không ghi đè snapshot hoặc chuyển secrets vào repo. back/README ghi working directory/imports và cách kiểm bản cũ. Sau cutover chỉ Django phục vụ frontend/workers, không dual-write; DB Flask/migrations cũ vẫn giữ để đối chiếu.
 
 ## 11. Tài liệu và triển khai
 

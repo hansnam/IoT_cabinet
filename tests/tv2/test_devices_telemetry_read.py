@@ -15,12 +15,12 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 import pytest
 
-from backend.app.auth.tokens import issue_access_token
-from backend.app.models.device import Device, DeviceAccess, DeviceConfig
-from backend.app.models.iam import AuthSession, Permission, Role, RolePermission, User, UserRole
-from backend.app.models.logs import AuditLog, UserActivityLog
-from backend.app.models.telemetry import DeviceShadow, Telemetry
-from backend.app.telemetry.schemas import sanitize_csv_cell
+from back.backend.app.auth.tokens import issue_access_token
+from back.backend.app.models.device import Device, DeviceAccess, DeviceConfig
+from back.backend.app.models.iam import AuthSession, Permission, Role, RolePermission, User, UserRole
+from back.backend.app.models.logs import AuditLog, UserActivityLog
+from back.backend.app.models.telemetry import DeviceShadow, Telemetry
+from back.backend.app.telemetry.schemas import sanitize_csv_cell
 
 
 @pytest.fixture
