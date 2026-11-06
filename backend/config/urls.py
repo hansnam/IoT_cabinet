@@ -15,7 +15,7 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path
+from django.urls import include, path
 from apps.core.views import health_live, health_ready
 
 urlpatterns = [
@@ -25,6 +25,18 @@ urlpatterns = [
 
     # Django Admin site
     path('admin/', admin.site.urls),
+
+    # IoT REST API v1
+    path('api/v1/devices/', include('apps.devices.urls')),
+    path('api/v1/telemetry/', include('apps.telemetry.urls')),
+    path('api/v1/commands/', include('apps.commands.urls')),
+    path('api/v1/alerts/', include('apps.alerts.urls')),
+
+    # Tương thích trực tiếp với React Frontend (/api/devices, /api/telemetry, /api/alerts, /api/commands)
+    path('api/devices/', include('apps.devices.urls')),
+    path('api/telemetry/', include('apps.telemetry.urls')),
+    path('api/commands/', include('apps.commands.urls')),
+    path('api/alerts/', include('apps.alerts.urls')),
 ]
 
 # Khai báo các handler lỗi toàn cục trả về JSON envelope
