@@ -38,7 +38,12 @@ DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() in ('true', '1', 'yes')
 # Danh sách domain / IP được phép truy cập
 allowed_hosts_env = os.getenv('DJANGO_ALLOWED_HOSTS', '127.0.0.1,localhost')
 ALLOWED_HOSTS = [h.strip() for h in allowed_hosts_env.split(',') if h.strip()]
+if 'testserver' not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append('testserver')
 
+# Danh sách Reverse Proxy tin cậy (chỉ tin cậy X-Forwarded-For khi IP nguồn thuộc danh sách này)
+trusted_proxies_env = os.getenv('DJANGO_TRUSTED_PROXIES', '')
+TRUSTED_PROXIES = [p.strip() for p in trusted_proxies_env.split(',') if p.strip()]
 
 # Application definition
 
@@ -67,13 +72,15 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'apps.accounts.security.middleware.SessionRegistryAndMustChangeMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-CSRF_FAILURE_VIEW = 'apps.core.errors.csrf_failure'
-
 ROOT_URLCONF = 'config.urls'
+
+# CSRF Failure View tùy biến trả về JSON chuẩn cho API
+CSRF_FAILURE_VIEW = 'apps.core.errors.csrf_failure'
 
 TEMPLATES = [
     {

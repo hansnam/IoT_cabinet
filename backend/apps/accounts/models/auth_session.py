@@ -91,3 +91,4 @@ class AuthSession(models.Model):
     def is_active(self) -> bool:
         """Kiểm tra phiên có đang còn hiệu lực hay không (chưa revoked và chưa hết hạn)."""
         return (self.revoked_at is None) and (self.expires_at > timezone.now())
+    user_id = None

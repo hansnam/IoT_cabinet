@@ -251,6 +251,7 @@ class RolePolicyTestCase(TestCase):
         """Xác minh seed_roles ném CommandError và rollback khi thiếu permission trong DB."""
         perm = Permission.objects.filter(content_type__app_label="accounts", codename="add_user").first()
         self.assertIsNotNone(perm)
+        assert perm is not None
         perm.delete()
 
         with self.assertRaises(CommandError) as ctx:
@@ -321,8 +322,10 @@ class RolePolicyTestCase(TestCase):
         assign_role(user, ROLE_OPERATOR)
         self.assertEqual(get_user_role(user), ROLE_OPERATOR)
 
-        with patch.object(User, "save", side_effect=RuntimeError("Simulated DB Crash")):
-            with self.assertRaises(RuntimeError):
+        with (
+            patch.object(User, "save", side_effect=RuntimeError("Simulated DB Crash")),
+            self.assertRaises(RuntimeError),
+        ):
                 assign_role(user, ROLE_ADMIN)
 
         # Dữ liệu trong DB vẫn bảo toàn vai trò OPERATOR ban đầu
