@@ -31,14 +31,14 @@ from flask import jsonify
 from sqlalchemy import func, text
 from sqlalchemy.exc import OperationalError
 
-from backend.app import create_app
-from backend.app.auth.messages import AuthFailureCode
-from backend.app.auth.passwords import hash_password, verify_password
-from backend.app.auth.rate_limit import compute_rate_limit_keys
-from backend.app.models.iam import AuthSession, LoginAttempt, Role, User, UserRole
-from backend.app.models.logs import AuditLog, UserActivityLog
-from backend.app.permissions.decorators import require_auth
-from backend.app.security.messages import ErrorCode, ErrorMessage
+from back.backend.app import create_app
+from back.backend.app.auth.messages import AuthFailureCode
+from back.backend.app.auth.passwords import hash_password, verify_password
+from back.backend.app.auth.rate_limit import compute_rate_limit_keys
+from back.backend.app.models.iam import AuthSession, LoginAttempt, Role, User, UserRole
+from back.backend.app.models.logs import AuditLog, UserActivityLog
+from back.backend.app.permissions.decorators import require_auth
+from back.backend.app.security.messages import ErrorCode, ErrorMessage
 
 
 # ==============================================================================
@@ -471,8 +471,8 @@ def test_blocked_attempt_does_not_extend_rate_limit_window(client, transaction_s
 
 def test_rate_limit_persists_across_new_app_instance(app, client, auth_seed_data):
     """Rate limit được lưu trong PostgreSQL nên vẫn có hiệu lực khi khởi tạo instance app mới."""
-    from backend.app import create_app
-    from backend.app.extensions import db
+    from back.backend.app import create_app
+    from back.backend.app.extensions import db
 
     username = auth_seed_data["username"]
 
@@ -706,7 +706,7 @@ def test_unregistered_ext_routes_return_404(client, ext_path, method):
 
 def test_advisory_lock_order_and_contract(transaction_session):
     """Kiểm tra hợp đồng sắp xếp thứ tự tăng dần cố định giữa 2 khóa rate-limit (username_key và ip_key)."""
-    from backend.app.auth.rate_limit import _key_to_lock_id, compute_rate_limit_keys
+    from back.backend.app.auth.rate_limit import _key_to_lock_id, compute_rate_limit_keys
 
     u_key, ip_key = compute_rate_limit_keys("admin_demo", "192.168.1.100")
     k_user = _key_to_lock_id(u_key)

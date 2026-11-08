@@ -38,7 +38,7 @@ Rà soát ngày 04/11/2026 từ [PDF đề bài 14 trang](<ĐỀ BÀI ĐỒ ÁN 
 | 4.6, trang 7 | UI các quy trình chính | React + Admin | Thao tác quản trị và vận hành trên browser; command chỉ hỗ trợ kỹ thuật |
 | Mục 6, trang 9 | Context/use case/layers/hardware/deploy/ERD/API/MQTT/2 sequence/lifecycle/role/threats | docs/database/hardware | Sơ đồ theo hệ thống đã triển khai, lý do từng quyết định |
 | Mục 7, trang 9–10 | Functional/security/nonfunctional tests có bằng chứng | tests + bảng kết quả | Actual/commit/log, latency/loss/recovery/soak và phương pháp đo |
-| 8.1, trang 10–11 | Repo đủ thư mục, lịch sử commit, tài khoản từng người, release/tag | GitHub/README | Cài/chạy được; backend Django dưới backend/django, không làm sai đường dẫn bàn giao |
+| 8.1, trang 10–11 | Repo đủ thư mục, lịch sử commit, tài khoản từng người, release/tag | GitHub/README | Cài/chạy được; Django đặt trực tiếp backend/, Flask lưu riêng back/; README trỏ đúng entrypoint |
 | 8.2–8.4, trang 11–13 | Báo cáo/slide/demo trực tiếp/video dự phòng | Hồ sơ nhóm | Slide đã thuyết trình giữ lại; cập nhật báo cáo thực; demo trực tiếp, video không thay hoàn toàn |
 | Mục 10, trang 13 | An toàn, privacy, khai báo bên thứ ba/AI | Phần cứng và báo cáo | DC thấp áp, không secret thật trên repo, khai báo AI và hiểu mã |
 

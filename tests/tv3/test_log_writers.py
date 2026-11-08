@@ -4,13 +4,13 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-from backend.app.models import (
+from back.backend.app.models import (
     User, AuthSession, Location, Device,
     AuditLog, UserActivityLog,
 )
-from backend.app.security.context import AuthContext
-from backend.app.audit import AuditService
-from backend.app.user_activity import UserActivityService
+from back.backend.app.security.context import AuthContext
+from back.backend.app.audit import AuditService
+from back.backend.app.user_activity import UserActivityService
 
 
 @pytest.fixture

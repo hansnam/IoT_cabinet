@@ -44,14 +44,14 @@ from flask import jsonify
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
-from backend.app.auth.messages import AuthFailureCode
-from backend.app.auth.passwords import hash_password, verify_password
-from backend.app.auth.rate_limit import (
+from back.backend.app.auth.messages import AuthFailureCode
+from back.backend.app.auth.passwords import hash_password, verify_password
+from back.backend.app.auth.rate_limit import (
     RATE_LIMIT_PURPOSE_CHANGE_PASSWORD,
     compute_rate_limit_keys,
 )
-from backend.app.auth.service import AuthService, AuthenticationFailed
-from backend.app.models.iam import (
+from back.backend.app.auth.service import AuthService, AuthenticationFailed
+from back.backend.app.models.iam import (
     AuthSession,
     LoginAttempt,
     Permission,
@@ -60,11 +60,11 @@ from backend.app.models.iam import (
     User,
     UserRole,
 )
-from backend.app.models.logs import AuditLog, UserActivityLog
-from backend.app.permissions.decorators import require_auth
-from backend.app.permissions.service import PermissionDenied
-from backend.app.security.context import AuthContext
-from backend.app.security.messages import ErrorCode, ErrorMessage
+from back.backend.app.models.logs import AuditLog, UserActivityLog
+from back.backend.app.permissions.decorators import require_auth
+from back.backend.app.permissions.service import PermissionDenied
+from back.backend.app.security.context import AuthContext
+from back.backend.app.security.messages import ErrorCode, ErrorMessage
 
 
 # ==============================================================================
@@ -562,7 +562,7 @@ def test_change_password_rate_limit_domain_separation(client, auth_seed_data, di
 
 def test_change_password_rate_limit_retry_after_clock_control(auth_seed_data, transaction_session):
     """(Ca 12) Kiểm soát tính toán Retry-After bằng clock injection không cần sleep."""
-    from backend.app.auth.rate_limit import check_rate_limit
+    from back.backend.app.auth.rate_limit import check_rate_limit
 
     u_key, ip_key = compute_rate_limit_keys(
         auth_seed_data["username"],
