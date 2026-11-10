@@ -397,13 +397,14 @@ sequenceDiagram
 
 Trước khi báo cáo hoàn thành nhiệm vụ TV2 cho nhóm trưởng và giảng viên, hãy tích chọn kiểm tra:
 
-- [ ] Toàn bộ 4 app IoT (`devices`, `telemetry`, `commands`, `alerts`) chạy ổn định trên Django 5.2 LTS.
-- [ ] Không có endpoint nào để lộ thông tin cho người dùng chưa đăng nhập (Anonymous bị chặn 100%).
-- [ ] Đã khóa CORS wildcard; chỉ cho phép web frontend truy cập có gửi kèm cookie session (`credentials: 'include'`).
-- [ ] Worker MQTT kết nối ổn định tới Mosquitto, tự động reconnect khi broker khởi động lại.
-- [ ] Topic xuất bản và lắng nghe khớp hoàn toàn với firmware ESP32 của TV1 theo chuẩn V1.4.
-- [ ] Lệnh gửi xuống quạt phân biệt rõ ràng các trạng thái `PENDING` $\rightarrow$ `SENT` $\rightarrow$ `APPLIED` $\rightarrow$ `TIMEOUT`.
-- [ ] Tải được file CSV lịch sử đo đạc từ endpoint `/export/` mở trên Excel không lỗi font.
-- [ ] Đã chạy toàn bộ test suite: tất cả các bài test đều xanh (`OK`).
-- [ ] Đã có sẵn 2 sơ đồ Sequence Diagrams và sơ đồ ERD để dán vào slide và báo cáo Word.
+- [x] Toàn bộ 4 app IoT (`devices`, `telemetry`, `commands`, `alerts`) chạy ổn định trên Django.
+- [x] Không có endpoint nào để lộ thông tin cho người dùng chưa đăng nhập (Anonymous bị chặn 100%, trả về 401/403).
+- [x] Đã khóa CORS wildcard; chỉ cho phép web frontend truy cập có gửi kèm cookie session (`credentials: 'include'`).
+- [x] Worker MQTT kết nối ổn định tới Mosquitto, tự động reconnect khi broker khởi động lại.
+- [x] Topic xuất bản và lắng nghe khớp hoàn toàn với firmware ESP32 của TV1 theo chuẩn V1.4 (`cabinet/v3/devices/...`).
+- [x] Lệnh gửi xuống quạt phân biệt rõ ràng các trạng thái `PENDING` $\rightarrow$ `SENT` $\rightarrow$ `APPLIED` $\rightarrow$ `APPLIED_LATE` / `TIMEOUT`.
+- [x] Tải được file CSV lịch sử đo đạc từ endpoint `/export/` mở trên Excel không lỗi font (UTF-8 BOM + CSV formula injection defense).
+- [x] Đã chạy toàn bộ test suite: **145/145 bài test đều xanh (`OK`)**.
+- [ ] Đã hoàn thành thông tuyến đầu cuối thực tế với bo mạch ESP32 thật của TV1 (Chặng TV2-05 / Gate D2).
+- [ ] Đã có sẵn 2 sơ đồ Sequence Diagrams và sơ đồ ERD để dán vào slide và báo cáo Word (Chặng TV2-06).
 
