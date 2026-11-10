@@ -36,7 +36,7 @@ SECRET_KEY = os.getenv(
 DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() in ('true', '1', 'yes')
 
 # Danh sách domain / IP được phép truy cập
-allowed_hosts_env = os.getenv('DJANGO_ALLOWED_HOSTS', '127.0.0.1,localhost')
+allowed_hosts_env = os.getenv('DJANGO_ALLOWED_HOSTS', '127.0.0.1,localhost,testserver')
 ALLOWED_HOSTS = [h.strip() for h in allowed_hosts_env.split(',') if h.strip()]
 if 'testserver' not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append('testserver')
@@ -57,16 +57,22 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
     # Third-party Apps
+    'corsheaders',
     'rest_framework',
 
     # Dự án IoT Cabinet Apps
     'apps.core.apps.CoreConfig',
     'apps.accounts.apps.AccountsConfig',
-    'apps.audit.apps.AuditConfig'
+    'apps.audit.apps.AuditConfig',
+    'apps.devices.apps.DevicesConfig',
+    'apps.telemetry.apps.TelemetryConfig',
+    'apps.commands.apps.CommandsConfig',
+    'apps.alerts.apps.AlertsConfig',
 ]
 
 MIDDLEWARE = [
     'apps.core.middleware.RequestIDAndSecurityHeadersMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -203,3 +209,13 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# CORS Headers Configuration
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True
+
+# MQTT Broker Configuration
+MQTT_BROKER_HOST = os.getenv('MQTT_BROKER_HOST', '127.0.0.1')
+MQTT_BROKER_PORT = int(os.getenv('MQTT_BROKER_PORT', '1883'))
+MQTT_KEEPALIVE = int(os.getenv('MQTT_KEEPALIVE', '60'))
+
