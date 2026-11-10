@@ -1,5 +1,3 @@
-# Tài Liệu Kiểm Thử Phần Cứng TV1
-
 > **Phạm vi:** Kiểm thử cảm biến DHT22, điều khiển quạt, xử lý lỗi, kết nối mạng và cấu hình thiết bị ESP32  
 > **Node:** `cabinet-001`  
 > **Số lượng kịch bản:** 05
