@@ -54,7 +54,7 @@ def create_auth_session(
     )
 
 def verify_auth_session(
-    session_key: str,
+    session_key: str | None,
     user: Any = None
 ) -> tuple[bool, AuthSession | None, str | None]:
     """

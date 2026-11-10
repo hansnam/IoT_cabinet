@@ -13,19 +13,20 @@ Test module kiểm tra toàn diện hạ tầng Authentication & Session của a
 - Kiểm tra bắt buộc CSRF trên endpoint đăng nhập (kể cả anonymous).
 - Chốt chặn must_change_password: Chặn API khác, cho phép đổi mật khẩu / me / logout.
 """
-import json
 from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth.models import Group
 from django.core.exceptions import PermissionDenied
-from django.http import HttpResponse
-from django.test import Client, RequestFactory, TestCase
+from django.test import Client, RequestFactory, TestCase, override_settings
+from django.urls import include, path
 from django.utils import timezone
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from apps.accounts.models import AuthSession, LoginAttempt, User
 from apps.accounts.policies.roles import ROLE_ADMIN, assign_role
-from apps.accounts.security.middleware import SessionRegistryAndMustChangeMiddleware
 from apps.accounts.security.rate_limit import (
     RATE_LIMIT_LOGIN_MAX_IP,
     RATE_LIMIT_LOGIN_MAX_USERNAME,
@@ -36,6 +37,23 @@ from apps.accounts.security.rate_limit import (
 )
 from apps.accounts.services.sessions import verify_auth_session
 from apps.audit.models import AuditLog
+
+
+class ProtectedExampleView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response({"ok": True})
+
+    def post(self, request):
+        return Response({"ok": True})
+
+
+urlpatterns = [
+    path("api/v1/test-protected/", ProtectedExampleView.as_view()),
+    path("api/v1/profile/me/extra/", ProtectedExampleView.as_view()),
+    path("", include("config.urls")),
+]
 
 
 class RateLimiterTestCase(TestCase):
@@ -481,6 +499,7 @@ class AuthEndpointsTestCase(TestCase):
         self.assertEqual(resp.status_code, 401)
         self.assertEqual(resp.json()["error"]["code"], "NOT_AUTHENTICATED")
 
+    @override_settings(ROOT_URLCONF=__name__)
     def test_must_change_password_blocks_access_to_other_apis(self):
         """
         Xác minh khi user có must_change_password=True:
@@ -499,17 +518,11 @@ class AuthEndpointsTestCase(TestCase):
         )
         csrf_logged = self.client.cookies["csrftoken"].value
 
-        # Giả lập request qua middleware
-        rf = RequestFactory()
-        req = rf.get("/api/v1/audit/logs/")
-        req.user = self.user
-        req.session = self.client.session
-
-        middleware = SessionRegistryAndMustChangeMiddleware(lambda r: HttpResponse())
-        resp = middleware(req)
+        resp = self.client.get("/api/v1/test-protected/")
         self.assertEqual(resp.status_code, 403)
-        data = json.loads(resp.content)
+        data = resp.json()
         self.assertIn("đổi mật khẩu", data["error"]["message"])
+        self.assertEqual(self.client.get("/api/v1/profile/me/extra/").status_code, 403)
 
         # Nhưng vẫn được phép đăng xuất mà không bị chặn
         logout_resp = self.client.post(
@@ -518,6 +531,64 @@ class AuthEndpointsTestCase(TestCase):
             HTTP_X_CSRFTOKEN=csrf_logged
         )
         self.assertEqual(logout_resp.status_code, 200)
+
+    @override_settings(ROOT_URLCONF=__name__)
+    def test_registry_checked_once_and_revoked_session_denied(self):
+        csrf = self._get_csrf_token()
+        self.client.post(
+            "/api/v1/auth/login/",
+            {"username": "auth_test_user", "password": "SecurePassword@2026!"},
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=csrf,
+        )
+        with patch(
+            "apps.accounts.security.authentication.verify_auth_session",
+            wraps=verify_auth_session,
+        ) as verify:
+            response = self.client.get("/api/v1/test-protected/")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(verify.call_count, 1)
+
+        AuthSession.objects.filter(session_key=self.client.session.session_key).update(
+            revoked_at=timezone.now(), revoke_reason="TEST"
+        )
+        response = self.client.get("/api/v1/test-protected/")
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["error"]["code"], "NOT_AUTHENTICATED")
+
+    @override_settings(ROOT_URLCONF=__name__)
+    def test_protected_api_still_requires_csrf(self):
+        csrf = self._get_csrf_token()
+        self.client.post(
+            "/api/v1/auth/login/",
+            {"username": "auth_test_user", "password": "SecurePassword@2026!"},
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=csrf,
+        )
+        response = self.client.post("/api/v1/test-protected/", {})
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["error"]["code"], "CSRF_FAILED")
+
+    def test_admin_still_checks_registry_and_must_change(self):
+        csrf = self._get_csrf_token()
+        self.client.post(
+            "/api/v1/auth/login/",
+            {"username": "auth_test_user", "password": "SecurePassword@2026!"},
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=csrf,
+        )
+        self.user.must_change_password = True
+        self.user.save(update_fields=["must_change_password"])
+        response = self.client.get("/admin/")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/admin/password_change/")
+
+        AuthSession.objects.filter(session_key=self.client.session.session_key).update(
+            revoked_at=timezone.now(), revoke_reason="TEST"
+        )
+        response = self.client.get("/admin/")
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/admin/login/", response.headers["Location"])
 
     def test_session_revoked_on_user_lock_and_cannot_revive_after_unlock(self):
         """

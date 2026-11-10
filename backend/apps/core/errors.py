@@ -90,6 +90,9 @@ def custom_exception_handler(exc: Exception, context: dict[str, Any]) -> HttpRes
             if 'CSRF' in exc_str:
                 code = ErrorCode.CSRF_FAILED
                 message = 'Yêu cầu bị từ chối do vi phạm kiểm tra an toàn CSRF. Vui lòng làm mới trang.'
+            elif exc.get_codes() == 'must_change_password':
+                code = ErrorCode.FORBIDDEN
+                message = 'Tài khoản bắt buộc phải đổi mật khẩu trước khi truy cập các chức năng khác.'
             else:
                 code = ErrorCode.FORBIDDEN
                 message = 'Bạn không có quyền truy cập tài nguyên này.'

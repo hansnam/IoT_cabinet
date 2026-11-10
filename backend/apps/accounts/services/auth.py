@@ -217,6 +217,8 @@ def establish_session(
 
             # 2. Đăng nhập qua framework Django (tự động cycle session_key chống cố định phiên)
             login(request, locked_user)
+            # Cùng user đăng nhập lại vẫn phải có key mới, không hồi sinh cookie đã revoke.
+            request.session.cycle_key()
 
             # 3. Thiết lập thời gian sống tuyệt đối 15 phút (900 giây)
             request.session.set_expiry(900)
@@ -225,7 +227,10 @@ def establish_session(
             request.session.save()
 
             # 5. Tạo bản ghi Registry trong cùng transaction
-            auth_session = create_auth_session(locked_user, request, request.session.session_key)
+            session_key = request.session.session_key
+            if session_key is None:
+                raise RuntimeError("Không tạo được khóa phiên đăng nhập.")
+            auth_session = create_auth_session(locked_user, request, session_key)
             request.session["auth_session_id"] = str(auth_session.id)
             request.session.save()
 
@@ -285,7 +290,7 @@ def logout_session(request: HttpRequest) -> None:
             outcome="SUCCESS",
             target_type="USER",
             target_id=str(user.pk),
-            target_name_snapshot=user.username,
+            target_name_snapshot=user.get_username(),
             summary="Đăng xuất khỏi hệ thống thành công",
             request_id=request_id,
             ip_address=ip,

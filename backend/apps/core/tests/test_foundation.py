@@ -14,6 +14,7 @@ from unittest.mock import patch
 from django.http import HttpResponse
 from django.test import RequestFactory, TestCase
 from rest_framework.exceptions import ParseError, PermissionDenied
+from rest_framework.response import Response
 
 from apps.core.errors import (
     ErrorCode,
@@ -38,7 +39,7 @@ class MiddlewareAndSecurityHeadersTestCase(TestCase):
         self.middleware.process_request(request)
 
         self.assertTrue(hasattr(request, 'request_id'))
-        parsed = uuid.UUID(request.request_id)
+        parsed = uuid.UUID(getattr(request, "request_id"))
         self.assertEqual(parsed.version, 4)
 
     def test_reuses_valid_client_uuid(self):
@@ -47,15 +48,15 @@ class MiddlewareAndSecurityHeadersTestCase(TestCase):
         request = self.factory.get('/health/live', HTTP_X_REQUEST_ID=client_uuid)
         self.middleware.process_request(request)
 
-        self.assertEqual(request.request_id, client_uuid)
+        self.assertEqual(getattr(request, "request_id"), client_uuid)
 
     def test_replaces_invalid_client_uuid(self):
         """Thay thế chuỗi rác bằng UUID v4 hợp lệ nếu client gửi rác."""
         request = self.factory.get('/health/live', HTTP_X_REQUEST_ID='invalid-not-a-uuid')
         self.middleware.process_request(request)
 
-        self.assertNotEqual(request.request_id, 'invalid-not-a-uuid')
-        parsed = uuid.UUID(request.request_id)
+        self.assertNotEqual(getattr(request, "request_id"), 'invalid-not-a-uuid')
+        parsed = uuid.UUID(getattr(request, "request_id"))
         self.assertEqual(parsed.version, 4)
 
     def test_response_headers_are_attached(self):
@@ -65,7 +66,7 @@ class MiddlewareAndSecurityHeadersTestCase(TestCase):
         response = HttpResponse("OK")
         final_response = self.middleware.process_response(request, response)
 
-        self.assertEqual(final_response['X-Request-ID'], request.request_id)
+        self.assertEqual(final_response['X-Request-ID'], getattr(request, "request_id"))
         self.assertIn('no-store', final_response['Cache-Control'])
         self.assertEqual(final_response['X-Content-Type-Options'], 'nosniff')
         self.assertEqual(final_response['X-Frame-Options'], 'DENY')
@@ -80,7 +81,7 @@ class FoundationViewsAndExceptionTestCase(TestCase):
     def test_csrf_failure_returns_json_envelope(self):
         """Xác minh csrf_failure trả JSON HTTP 403 với envelope chuẩn."""
         request = self.factory.post('/api/test')
-        request.request_id = str(uuid.uuid4())
+        setattr(request, "request_id", str(uuid.uuid4()))
 
         response = csrf_failure(request, reason="CSRF token missing")
         self.assertEqual(response.status_code, 403)
@@ -88,15 +89,16 @@ class FoundationViewsAndExceptionTestCase(TestCase):
         data = json.loads(response.content.decode('utf-8'))
         self.assertIn('error', data)
         self.assertEqual(data['error']['code'], ErrorCode.CSRF_FAILED)
-        self.assertEqual(data['error']['request_id'], request.request_id)
+        self.assertEqual(data['error']['request_id'], getattr(request, "request_id"))
 
     def test_drf_parse_error_mapped_to_validation_error(self):
         """Xác minh lỗi cú pháp JSON ParseError được ánh xạ sang VALIDATION_ERROR 400."""
         request = self.factory.post('/api/test')
-        request.request_id = str(uuid.uuid4())
+        setattr(request, "request_id", str(uuid.uuid4()))
         exc = ParseError("JSON parse error - Expecting value")
 
         response = custom_exception_handler(exc, {'request': request})
+        assert isinstance(response, Response)
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data['error']['code'], ErrorCode.VALIDATION_ERROR)
         self.assertIn("JSON", response.data['error']['message'])
@@ -104,17 +106,18 @@ class FoundationViewsAndExceptionTestCase(TestCase):
     def test_drf_csrf_permission_denied_mapped_to_csrf_failed(self):
         """Xác minh SessionAuthentication từ chối do CSRF được ánh xạ sang CSRF_FAILED 403."""
         request = self.factory.post('/api/test')
-        request.request_id = str(uuid.uuid4())
+        setattr(request, "request_id", str(uuid.uuid4()))
         exc = PermissionDenied("CSRF Failed: CSRF token missing or incorrect.")
 
         response = custom_exception_handler(exc, {'request': request})
+        assert isinstance(response, Response)
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.data['error']['code'], ErrorCode.CSRF_FAILED)
 
     def test_custom_handler404_returns_json_envelope(self):
         """Xác minh handler404 toàn cục trả JSON envelope chuẩn NOT_FOUND."""
         request = self.factory.get('/api/nonexistent-url')
-        request.request_id = str(uuid.uuid4())
+        setattr(request, "request_id", str(uuid.uuid4()))
 
         response = handler404(request)
         self.assertEqual(response.status_code, 404)
@@ -143,7 +146,7 @@ class FoundationViewsAndExceptionTestCase(TestCase):
     def test_health_ready_db_disconnected_returns_standard_error_envelope(self):
         """Xác minh /health/ready trả HTTP 503 với envelope lỗi SERVICE_UNAVAILABLE chuẩn khi DB lỗi."""
         request = self.factory.get('/health/ready')
-        request.request_id = str(uuid.uuid4())
+        setattr(request, "request_id", str(uuid.uuid4()))
 
         with patch('django.db.connection.cursor', side_effect=Exception("DB Connection Timeout")):
             response = health_ready(request)

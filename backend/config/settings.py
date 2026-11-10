@@ -186,7 +186,7 @@ AUTH_LOG_HMAC_KEY = os.getenv(
 REST_FRAMEWORK = {
     'EXCEPTION_HANDLER': 'apps.core.errors.custom_exception_handler',
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.SessionAuthentication',
+        'apps.accounts.security.authentication.RegistrySessionAuthentication',
     ],
 }
 

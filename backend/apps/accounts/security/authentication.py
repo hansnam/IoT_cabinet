@@ -10,9 +10,10 @@ from typing import Any
 
 from django.conf import settings
 from rest_framework.authentication import SessionAuthentication
-from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 
 from apps.accounts.services.sessions import verify_auth_session
+from apps.accounts.security.paths import ALLOWED_MUST_CHANGE_PATHS
 
 
 class RegistrySessionAuthentication(SessionAuthentication):
@@ -42,7 +43,7 @@ class RegistrySessionAuthentication(SessionAuthentication):
         user, auth = user_auth_tuple
         session_key = getattr(request.session, "session_key", None)
         if not session_key:
-            return None
+            raise AuthenticationFailed("Phiên làm việc không hợp lệ.", code="NOT_AUTHENTICATED")
 
         # 2. Đối chiếu phiên với AuthSession Registry
         is_valid, session, reason = verify_auth_session(session_key, user=user)
@@ -58,5 +59,11 @@ class RegistrySessionAuthentication(SessionAuthentication):
                 raise AuthenticationFailed("Tài khoản người dùng chưa được phân quyền vai trò hợp lệ.", code="USER_NO_ROLE")
             else:
                 raise AuthenticationFailed("Phiên làm việc không hợp lệ.", code="SESSION_INVALID")
+
+        if user.must_change_password and request.path not in ALLOWED_MUST_CHANGE_PATHS:
+            raise PermissionDenied(
+                "Tài khoản bắt buộc phải đổi mật khẩu trước khi truy cập các chức năng khác.",
+                code="must_change_password",
+            )
 
         return user, auth

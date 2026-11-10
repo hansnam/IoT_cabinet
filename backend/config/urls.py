@@ -14,8 +14,8 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+from apps.accounts.admin_site import cabinet_admin_site
 from apps.core.views import health_live, health_ready
-from django.contrib import admin
 from django.urls import include, path
 
 urlpatterns = [
@@ -27,7 +27,7 @@ urlpatterns = [
     path("api/v1/", include("apps.accounts.urls")),
 
     # Django Admin site
-    path('admin/', admin.site.urls),
+    path("admin/", cabinet_admin_site.urls),
 ]
 
 # Khai báo các handler lỗi toàn cục trả về JSON envelope

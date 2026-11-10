@@ -12,14 +12,13 @@ Test module kiểm tra AuditLog và AuditService:
 """
 import uuid
 
-from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.test import SimpleTestCase, TransactionTestCase
 
 from apps.audit.models import AuditLog
+from apps.accounts.models import User
 from apps.audit.services import AuditService, sanitize_metadata
 
-User = get_user_model()
 
 class AuditSanitizerTestCase(SimpleTestCase):
     """Kiểm tra đơn vị logic hàm sanitize_metadata và kiểm tra secret không cần DB."""
