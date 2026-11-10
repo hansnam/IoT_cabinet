@@ -1,12 +1,92 @@
+import csv
 from django.db.models import Avg, Max, Min
+from django.http import HttpResponse
+from django.utils import timezone
 from django.utils.dateparse import parse_datetime
-from rest_framework import viewsets
+from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from apps.devices.policies import visible_devices
 from apps.telemetry.models import Telemetry
 from apps.telemetry.serializers import TelemetrySerializer
+
+
+def sanitize_csv_cell(value):
+    """
+    Phòng thủ tấn công CSV Formula Injection (CWE-1236).
+    Nếu ký tự đầu là '=', '+', '-', '@', '\t', '\r', thêm tiền tố dấu nháy đơn (').
+    """
+    if value is None:
+        return ""
+    s = str(value)
+    if s and s[0] in ('=', '+', '-', '@', '\t', '\r'):
+        return f"'{s}"
+    return s
+
+
+def build_telemetry_csv_response(device, query_params):
+    """
+    Tạo phản hồi tải file CSV dữ liệu viễn trắc với mã UTF-8 BOM và chống CSV Injection.
+    """
+    qs = Telemetry.objects.filter(device=device)
+
+    from_time = query_params.get('from_time')
+    if from_time:
+        dt = parse_datetime(from_time)
+        if dt:
+            qs = qs.filter(measured_at__gte=dt)
+
+    to_time = query_params.get('to_time')
+    if to_time:
+        dt = parse_datetime(to_time)
+        if dt:
+            qs = qs.filter(measured_at__lte=dt)
+
+    limit_param = query_params.get('limit', '5000')
+    try:
+        limit = min(int(limit_param), 10000)
+    except ValueError:
+        limit = 5000
+
+    records = qs[:limit]
+
+    timestamp_str = timezone.now().strftime('%Y%m%d_%H%M%S')
+    filename = f"telemetry_{device.id}_{timestamp_str}.csv"
+
+    response = HttpResponse(content_type='text/csv; charset=utf-8')
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+
+    # Ghi UTF-8 BOM để Excel trên Windows hiển thị đúng tiếng Việt
+    response.write('\ufeff')
+
+    writer = csv.writer(response)
+    writer.writerow([
+        'Thời gian đo (ISO8601)',
+        'Mã tủ',
+        'Nhiệt độ (°C)',
+        'Độ ẩm (%)',
+        'Trạng thái quạt',
+        'Cửa tủ',
+        'Chế độ',
+        'Uptime (s)',
+        'Seq',
+    ])
+
+    for r in records:
+        writer.writerow([
+            sanitize_csv_cell(r.measured_at.isoformat() if r.measured_at else ''),
+            sanitize_csv_cell(device.id),
+            sanitize_csv_cell(r.temperature),
+            sanitize_csv_cell(r.humidity),
+            sanitize_csv_cell(r.fan_status),
+            sanitize_csv_cell(r.door_status),
+            sanitize_csv_cell(r.mode),
+            sanitize_csv_cell(r.uptime),
+            sanitize_csv_cell(r.seq),
+        ])
+
+    return response
 
 
 class TelemetryViewSet(viewsets.ReadOnlyModelViewSet):
@@ -19,16 +99,18 @@ class TelemetryViewSet(viewsets.ReadOnlyModelViewSet):
         - to_time (ISO8601): Thời điểm kết thúc
         - limit (int): Giới hạn số lượng (mặc định 50, tối đa 500)
     - GET /api/telemetry/stats/ : Thống kê min/max/avg nhiệt độ, độ ẩm
+    - GET /api/telemetry/export/ : Xuất file CSV lịch sử viễn trắc
     """
     serializer_class = TelemetrySerializer
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         user = self.request.user
-        qs = Telemetry.objects.select_related('device').all()
+        if not user or not user.is_authenticated:
+            return Telemetry.objects.none()
 
-        if user and user.is_authenticated:
-            allowed_devices = visible_devices(user)
-            qs = qs.filter(device__in=allowed_devices)
+        allowed_devices = visible_devices(user)
+        qs = Telemetry.objects.select_related('device').filter(device__in=allowed_devices)
 
         # Lọc theo thiết bị
         device_id = self.request.query_params.get('device_id') or self.request.query_params.get('cabinet_id')
@@ -92,3 +174,23 @@ class TelemetryViewSet(viewsets.ReadOnlyModelViewSet):
                 'avg': round(aggregates['avg_hum'], 2) if aggregates['avg_hum'] is not None else None,
             }
         })
+
+    @action(detail=False, methods=['get'])
+    def export(self, request):
+        """API xuất dữ liệu CSV viễn trắc qua query param device_id"""
+        device_id = request.query_params.get('device_id') or request.query_params.get('cabinet_id')
+        if not device_id:
+            return Response(
+                {"error": {"code": "MISSING_DEVICE_ID", "message": "Vui lòng chỉ định tham số device_id."}},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        from apps.devices.models import Device
+        from apps.devices.policies import require_device_permission
+        device = Device.objects.filter(id=device_id).first()
+        if not device:
+            return Response(
+                {"error": {"code": "DEVICE_NOT_FOUND", "message": f"Không tìm thấy tủ mạng '{device_id}'."}},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        require_device_permission(request.user, device, action='VIEW')
+        return build_telemetry_csv_response(device, request.query_params)

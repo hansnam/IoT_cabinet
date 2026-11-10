@@ -14,6 +14,8 @@ class Alert(models.Model):
     ALERT_TYPE_CHOICES = (
         ('HIGH_TEMP', 'Nhiệt độ cao vượt ngưỡng'),
         ('HIGH_HUMIDITY', 'Độ ẩm cao vượt ngưỡng'),
+        ('DEVICE_OFFLINE', 'Mất kết nối thiết bị quá thời gian cho phép'),
+        ('SENSOR_FAULT', 'Lỗi cảm biến DHT22 (không đọc được số liệu)'),
         ('FAN_FAULT', 'Sự cố quạt thông gió'),
         ('DOOR_OPEN', 'Cửa tủ mạng đang mở'),
     )

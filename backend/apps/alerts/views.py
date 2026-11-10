@@ -1,6 +1,6 @@
 import uuid
 from django.utils import timezone
-from rest_framework import status, viewsets
+from rest_framework import mixins, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -8,29 +8,35 @@ from apps.alerts.models import Alert
 from apps.alerts.serializers import AlertSerializer
 from apps.audit.models import AuditLog
 from apps.audit.services import AuditService
-from apps.devices.policies import visible_devices
+from apps.devices.policies import require_device_permission, visible_devices
 
 
-class AlertViewSet(viewsets.ModelViewSet):
+class AlertViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
     """
     API ViewSet quản lý Cảnh báo sự cố (Alerts & Incidents):
-    - GET /api/alerts/ : Danh sách cảnh báo
+    - GET /api/alerts/ : Danh sách cảnh báo trong phạm vi thiết bị được phân quyền
       Tham số:
         - device_id: Lọc theo mã tủ
         - status: OPEN / ACKNOWLEDGED / RESOLVED
         - severity: INFO / WARNING / CRITICAL
+    - GET /api/alerts/{id}/ : Chi tiết cảnh báo
     - POST /api/alerts/{id}/acknowledge/ : Ghi nhận cảnh báo
     - POST /api/alerts/{id}/resolve/ : Đánh dấu đã giải quyết cảnh báo
     """
     serializer_class = AlertSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         user = self.request.user
-        qs = Alert.objects.select_related('device', 'acknowledged_by').all()
+        if not user or not user.is_authenticated:
+            return Alert.objects.none()
 
-        if user and user.is_authenticated:
-            allowed_devices = visible_devices(user)
-            qs = qs.filter(device__in=allowed_devices)
+        allowed_devices = visible_devices(user)
+        qs = Alert.objects.select_related('device', 'acknowledged_by').filter(device__in=allowed_devices)
 
         device_id = self.request.query_params.get('device_id')
         if device_id:
@@ -55,13 +61,15 @@ class AlertViewSet(viewsets.ModelViewSet):
     def acknowledge(self, request, pk=None):
         """Ghi nhận cảnh báo đang xảy ra"""
         alert = self.get_object()
+        require_device_permission(request.user, alert.device, action='OPERATE')
+
         if alert.status != 'OPEN':
             return Response(
                 {"message": f"Cảnh báo đang ở trạng thái '{alert.status}', không cần ghi nhận lại."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        user = request.user if (request.user and request.user.is_authenticated) else None
+        user = request.user
         alert.status = 'ACKNOWLEDGED'
         alert.acknowledged_at = timezone.now()
         alert.acknowledged_by = user
@@ -88,13 +96,15 @@ class AlertViewSet(viewsets.ModelViewSet):
     def resolve(self, request, pk=None):
         """Đánh dấu cảnh báo đã được khắc phục"""
         alert = self.get_object()
+        require_device_permission(request.user, alert.device, action='OPERATE')
+
         if alert.status == 'RESOLVED':
             return Response(
                 {"message": "Cảnh báo này đã được khắc phục trước đó."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        user = request.user if (request.user and request.user.is_authenticated) else None
+        user = request.user
         alert.status = 'RESOLVED'
         alert.resolved_at = timezone.now()
         alert.save(update_fields=['status', 'resolved_at'])

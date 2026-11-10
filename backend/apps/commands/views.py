@@ -1,4 +1,4 @@
-from rest_framework import viewsets
+from rest_framework import permissions, viewsets
 from rest_framework.response import Response
 from apps.commands.models import Command
 from apps.commands.serializers import CommandSerializer
@@ -15,14 +15,15 @@ class CommandViewSet(viewsets.ReadOnlyModelViewSet):
     - GET /api/commands/{id}/ : Chi tiết một lệnh cụ thể
     """
     serializer_class = CommandSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         user = self.request.user
-        qs = Command.objects.select_related('device', 'actor').all()
+        if not user or not user.is_authenticated:
+            return Command.objects.none()
 
-        if user and user.is_authenticated:
-            allowed_devices = visible_devices(user)
-            qs = qs.filter(device__in=allowed_devices)
+        allowed_devices = visible_devices(user)
+        qs = Command.objects.select_related('device', 'actor').filter(device__in=allowed_devices)
 
         device_id = self.request.query_params.get('device_id')
         if device_id:
