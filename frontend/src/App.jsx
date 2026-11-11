@@ -1,64 +1,15 @@
-
 import { useEffect, useState } from 'react'
 import './App.css'
 
-const API = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5000'
-const USE_MOCK_DATA = import.meta.env.VITE_USE_MOCK_DATA === 'true'
-
-const demoDevices = [
-  {
-    device_id: 'CABINET-01',
-    name: 'Tủ điện 01',
-    device_type: 'Cabinet',
-    connection_state: 'online',
-    health_state: 'normal',
-    last_seen_at: new Date().toISOString()
-  },
-  {
-    device_id: 'CABINET-02',
-    name: 'Tủ điện 02',
-    device_type: 'Cabinet',
-    connection_state: 'offline',
-    health_state: 'warning',
-    last_seen_at: new Date().toISOString()
-  }
-]
-
-const demoAlerts = [
-  {
-    id: 1,
-    message: 'Nhiệt độ vượt ngưỡng cảnh báo',
-    device_id: 'CABINET-01',
-    severity: 'high',
-    status: 'open',
-    created_at: new Date().toISOString()
-  },
-  {
-    id: 2,
-    message: 'Thiết bị mất kết nối',
-    device_id: 'CABINET-02',
-    severity: 'medium',
-    status: 'open',
-    created_at: new Date().toISOString()
-  }
-]
-
-const demoTelemetry = [
-  {
-    id: 1,
-    received_at: new Date().toISOString(),
-    temperature_c: 32.5,
-    humidity_pct: 68,
-    fan_output: 60
-  }
-]
+// Đường dẫn API chuẩn Django V1.4 (dùng Vite Proxy hoặc biến môi trường)
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 
 function App() {
   const [page, setPage] = useState('dashboard')
   const [devices, setDevices] = useState([])
   const [alerts, setAlerts] = useState([])
   const [telemetry, setTelemetry] = useState([])
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
   const [severity, setSeverity] = useState('all')
@@ -67,40 +18,55 @@ function App() {
     let active = true
 
     async function loadData() {
-      if (USE_MOCK_DATA) {
-        setDevices(demoDevices)
-        setAlerts(demoAlerts)
-        setTelemetry(demoTelemetry)
-        setError('')
-        return
-      }
-
-      setLoading(true)
-
       try {
-        const responses = await Promise.all([
-          fetch(`${API}/api/devices`),
-          fetch(`${API}/api/alerts`),
-          fetch(`${API}/api/telemetry`)
+        const requestOptions = {
+          credentials: 'include',
+          headers: {
+            'Accept': 'application/json'
+          }
+        }
+
+        // 1. Gọi các API độc lập kèm .catch() để endpoint lỗi không kéo sập toàn bộ
+        const [devicesRes, alertsRes, telemetryRes] = await Promise.all([
+          fetch(`${API_BASE}/devices/`, requestOptions).catch(() => null),
+          fetch(`${API_BASE}/alerts/`, requestOptions).catch(() => null),
+          fetch(`${API_BASE}/telemetry/`, requestOptions).catch(() => null)
         ])
 
-        if (responses.some(response => !response.ok)) {
-          throw new Error('Không thể tải dữ liệu từ API.')
+        // Hàm hỗ trợ bóc tách mảng JSON an toàn từ Response
+        const parseList = async (res) => {
+          if (!res || !res.ok) return []
+          try {
+            const json = await res.json()
+            if (Array.isArray(json)) return json
+            return Array.isArray(json.data) ? json.data : []
+          } catch {
+            return []
+          }
         }
 
-        const data = await Promise.all(
-          responses.map(response => response.json())
-        )
-
-        if (active) {
-          setDevices(Array.isArray(data[0]) ? data[0] : data[0].data || [])
-          setAlerts(Array.isArray(data[1]) ? data[1] : data[1].data || [])
-          setTelemetry(Array.isArray(data[2]) ? data[2] : data[2].data || [])
-          setError('')
+        // 2. Xử lý kết quả danh sách Thiết bị (Devices)
+        if (devicesRes && devicesRes.ok) {
+          const devicesList = await parseList(devicesRes)
+          if (active) setDevices(devicesList)
+        } else if (devicesRes && (devicesRes.status === 401 || devicesRes.status === 403)) {
+          throw new Error('Chưa đăng nhập hoặc phiên làm việc đã hết hạn.')
+        } else if (devicesRes && !devicesRes.ok) {
+          throw new Error(`Không thể lấy danh sách thiết bị (Mã lỗi: ${devicesRes.status})`)
         }
+
+        // 3. Xử lý Cảnh báo (Alerts)
+        const alertsList = await parseList(alertsRes)
+        if (active) setAlerts(alertsList)
+
+        // 4. Xử lý Telemetry
+        const telemetryList = await parseList(telemetryRes)
+        if (active) setTelemetry(telemetryList)
+
+        if (active) setError('')
       } catch (err) {
         if (active) {
-          setError(err.message || 'Không thể kết nối backend.')
+          setError(err.message || 'Không thể kết nối đến Backend.')
         }
       } finally {
         if (active) setLoading(false)
@@ -108,7 +74,8 @@ function App() {
     }
 
     loadData()
-    const timer = setInterval(loadData, 5000)
+    // Chu kỳ Polling 2 giây một lần theo đặc tả P0 V1.4
+    const timer = setInterval(loadData, 2000)
 
     return () => {
       active = false
@@ -116,32 +83,44 @@ function App() {
     }
   }, [])
 
-  const latest = telemetry[0] || {}
+  // Dữ liệu telemetry mới nhất (hoặc lấy từ số đo mới nhất của thiết bị đầu tiên nếu telemetry rỗng)
+  const latest = telemetry[0] || (devices[0] ? {
+    temperature: devices[0].latest_temperature,
+    humidity: devices[0].latest_humidity,
+    fan_status: devices[0].latest_fan_status,
+  } : {})
 
+  // Danh sách cảnh báo chưa xử lý (OPEN / ACKNOWLEDGED)
   const openAlerts = alerts.filter(alert =>
     !['resolved', 'closed'].includes(
       String(alert.status || '').toLowerCase()
     )
   )
 
+  // Lọc cảnh báo theo từ khóa và mức độ
   const filteredAlerts = alerts.filter(alert => {
-    const matchesSearch = String(alert.message || '')
+    const message = alert.message || alert.alert_type || alert.type || ''
+    const matchesSearch = String(message)
       .toLowerCase()
       .includes(search.toLowerCase())
 
+    const alertSev = String(alert.severity || '').toLowerCase()
     const matchesSeverity =
       severity === 'all' ||
-      String(alert.severity || '').toLowerCase() === severity
+      alertSev === severity.toLowerCase() ||
+      (severity === 'high' && alertSev === 'warning') ||
+      (severity === 'low' && alertSev === 'info')
 
     return matchesSearch && matchesSeverity
   })
 
+  // Định dạng an toàn: null / undefined -> '--'
   const format = value =>
     value === null || value === undefined || value === ''
       ? '--'
       : value
 
-  const date = value =>
+  const formatDate = value =>
     value ? new Date(value).toLocaleString('vi-VN') : '--'
 
   return (
@@ -192,19 +171,13 @@ function App() {
           </div>
         </header>
 
-        {USE_MOCK_DATA && (
-          <div className="notice">
-            Đang dùng dữ liệu demo, không phải dữ liệu thiết bị thật.
-          </div>
-        )}
-
         {error && (
           <div className="notice error">
-            <strong>Lỗi tải dữ liệu.</strong> {error}
+            <strong>Lỗi kết nối.</strong> {error}
           </div>
         )}
 
-        {loading && <p className="loading">Đang tải dữ liệu...</p>}
+        {loading && <p className="loading">Đang kết nối Backend...</p>}
 
         {page === 'dashboard' ? (
           <>
@@ -213,28 +186,28 @@ function App() {
                 <h2>Tổng quan hệ thống</h2>
                 <p>Thông tin thiết bị và dữ liệu giám sát mới nhất.</p>
               </div>
-              <span className="refresh-label">Tự làm mới mỗi 5 giây</span>
+              <span className="refresh-label">Tự làm mới mỗi 2 giây</span>
             </div>
 
             <section className="cards">
-              <article className="card metric">
+              <article className="card metric metric-devices">
                 <p>Tổng thiết bị</p>
                 <h2>{devices.length}</h2>
                 <span>Thiết bị được tải</span>
               </article>
-              <article className="card metric">
+              <article className="card metric metric-alerts">
                 <p>Cảnh báo chưa xử lý</p>
                 <h2>{openAlerts.length}</h2>
                 <span>Cần theo dõi</span>
               </article>
-              <article className="card metric">
+              <article className="card metric metric-temp">
                 <p>Nhiệt độ gần nhất</p>
-                <h2>{format(latest.temperature_c)}<small> °C</small></h2>
+                <h2>{format(latest.temperature ?? latest.temperature_c)}<small> °C</small></h2>
                 <span>Dữ liệu telemetry</span>
               </article>
-              <article className="card metric">
+              <article className="card metric metric-humid">
                 <p>Độ ẩm gần nhất</p>
-                <h2>{format(latest.humidity_pct)}<small> %</small></h2>
+                <h2>{format(latest.humidity ?? latest.humidity_pct)}<small> %</small></h2>
                 <span>Dữ liệu telemetry</span>
               </article>
             </section>
@@ -261,25 +234,25 @@ function App() {
                   </thead>
                   <tbody>
                     {devices.map((device, index) => (
-                      <tr key={device.device_id || index}>
+                      <tr key={device.id || device.device_id || index}>
                         <td>
-                          <strong>{device.name || device.device_id || '--'}</strong>
-                          <small>{device.device_id || ''}</small>
+                          <strong>{device.name || device.id || device.device_id || '--'}</strong>
+                          <small>{device.id || device.device_id || ''}</small>
                         </td>
-                        <td>{format(device.device_type)}</td>
+                        <td>{format(device.hardware_version ? `${device.hardware_version} (${device.firmware_version || 'v1.0'})` : (device.device_type || device.profile || device.source))}</td>
                         <td>
-                          <span className="status-pill">
-                            {format(device.connection_state)}
+                          <span className={`status-pill ${device.is_online ? 'online' : (device.is_online === false ? 'offline' : String(device.connection_state || device.connection || 'offline').toLowerCase())}`}>
+                            {device.is_online !== undefined ? (device.is_online ? 'ONLINE' : 'OFFLINE') : format(device.connection_state || device.connection)}
                           </span>
                         </td>
-                        <td>{format(device.health_state)}</td>
-                        <td>{date(device.last_seen_at)}</td>
+                        <td>{format(device.status || device.health_state || device.health)}</td>
+                        <td>{formatDate(device.last_seen_at || device.last_seen)}</td>
                       </tr>
                     ))}
-                    {!devices.length && (
+                    {!devices.length && !loading && (
                       <tr>
                         <td colSpan="5" className="empty">
-                          Chưa có dữ liệu thiết bị.
+                          Chưa có thiết bị nào trong CSDL Backend.
                         </td>
                       </tr>
                     )}
@@ -292,7 +265,7 @@ function App() {
               <div className="card-heading">
                 <div>
                   <h2>Lịch sử telemetry</h2>
-                  <p>Các bản ghi đo được trả về từ API</p>
+                  <p>Bản ghi nhiệt độ & độ ẩm đo từ cảm biến</p>
                 </div>
               </div>
               <div className="table-wrap">
@@ -307,17 +280,31 @@ function App() {
                   </thead>
                   <tbody>
                     {telemetry.slice(0, 10).map((item, index) => (
-                      <tr key={item.id || item.received_at || index}>
-                        <td>{date(item.received_at || item.measured_at)}</td>
-                        <td>{format(item.temperature_c)} °C</td>
-                        <td>{format(item.humidity_pct)} %</td>
-                        <td>{format(item.fan_output)}</td>
+                      <tr key={item.id || item.measured_at || index}>
+                        <td>{formatDate(item.measured_at || item.received_at)}</td>
+                        <td className="temp-text">{format(item.temperature ?? item.temperature_c)} °C</td>
+                        <td className="humid-text">{format(item.humidity ?? item.humidity_pct)} %</td>
+                        <td>
+                          {(() => {
+                            const val = item.fan_status !== undefined ? item.fan_status : item.fan_output
+                            if (val === null || val === undefined || val === '') return '--'
+                            const isOn = val === 'ON' || val === true || val === 1
+                            return (
+                              <span className={`fan-badge ${isOn ? 'on' : 'off'}`}>
+                                {isOn ? 'BẬT (ON)' : 'TẮT (OFF)'}
+                              </span>
+                            )
+                          })()}
+                          {item.mode && (
+                            <small style={{ display: 'block', color: '#888' }}>Chế độ: {item.mode}</small>
+                          )}
+                        </td>
                       </tr>
                     ))}
-                    {!telemetry.length && (
+                    {!telemetry.length && !loading && (
                       <tr>
                         <td colSpan="4" className="empty">
-                          Chưa có bản ghi telemetry.
+                          Chưa có bản ghi telemetry (Thiết bị chưa gửi số đo).
                         </td>
                       </tr>
                     )}
@@ -350,9 +337,9 @@ function App() {
               >
                 <option value="all">Tất cả mức độ</option>
                 <option value="critical">Critical</option>
-                <option value="high">High</option>
+                <option value="high">High / Warning</option>
                 <option value="medium">Medium</option>
-                <option value="low">Low</option>
+                <option value="low">Low / Info</option>
               </select>
             </div>
 
@@ -360,7 +347,7 @@ function App() {
               <table>
                 <thead>
                   <tr>
-                    <th>Nội dung</th>
+                    <th>Nội dung / Loại</th>
                     <th>Mức độ</th>
                     <th>Trạng thái</th>
                     <th>Thời gian</th>
@@ -370,8 +357,11 @@ function App() {
                   {filteredAlerts.map((alert, index) => (
                     <tr key={alert.id || index}>
                       <td>
-                        <strong>{alert.message || '--'}</strong>
-                        <small>{alert.device_id || ''}</small>
+                        <strong>{alert.message || alert.alert_type || alert.type || '--'}</strong>
+                        <small>
+                          {alert.device_id ? `Tủ: ${alert.device_id}` : ''}
+                          {alert.alert_type && alert.message ? ` • ${alert.alert_type}` : ''}
+                        </small>
                       </td>
                       <td>
                         <span className={`severity ${String(alert.severity || '').toLowerCase()}`}>
@@ -379,13 +369,13 @@ function App() {
                         </span>
                       </td>
                       <td>{format(alert.status)}</td>
-                      <td>{date(alert.created_at || alert.triggered_at)}</td>
+                      <td>{formatDate(alert.created_at || alert.triggered_at)}</td>
                     </tr>
                   ))}
-                  {!filteredAlerts.length && (
+                  {!filteredAlerts.length && !loading && (
                     <tr>
                       <td colSpan="4" className="empty">
-                        Không có cảnh báo phù hợp.
+                        Không có cảnh báo nào.
                       </td>
                     </tr>
                   )}
