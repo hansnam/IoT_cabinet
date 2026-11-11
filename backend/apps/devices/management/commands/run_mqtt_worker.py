@@ -8,7 +8,7 @@ from datetime import timedelta
 import paho.mqtt.client as mqtt
 from django.conf import settings
 from django.core.management.base import BaseCommand
-from django.db import transaction
+from django.db import close_old_connections, transaction
 from django.utils import timezone
 
 from apps.alerts.models import Alert
@@ -22,7 +22,7 @@ logger = logging.getLogger('mqtt_worker')
 
 
 class Command(BaseCommand):
-    help = "Chạy nền tiến trình MQTT Worker: Thu thập viễn trắc, xử lý phản hồi ACK và quét gửi lệnh Outbox."
+    help = "Chạy nền tiến trình MQTT Worker: Thu thập viễn trắc V1.4, xử lý Application ACK và quét gửi lệnh Outbox."
 
     def add_arguments(self, parser):
         parser.add_argument('--host', type=str, default=settings.MQTT_BROKER_HOST, help='Địa chỉ IP / Hostname MQTT Broker')
@@ -35,7 +35,7 @@ class Command(BaseCommand):
         keepalive = options['keepalive']
 
         self.stdout.write(self.style.SUCCESS(
-            f"=== BẮT ĐẦU TIẾN TRÌNH DJANGO MQTT WORKER ==="
+            f"=== BẮT ĐẦU TIẾN TRÌNH DJANGO MQTT WORKER (ĐẶC TẢ V1.4) ==="
             f"\nKết nối tới MQTT Broker: {broker_host}:{broker_port}"
         ))
 
@@ -44,33 +44,49 @@ class Command(BaseCommand):
         def on_connect(client, userdata, flags, rc):
             if rc == 0:
                 self.stdout.write(self.style.SUCCESS("[MQTT] Kết nối thành công tới Mosquitto Broker."))
-                # Đăng ký các topics cốt lõi theo contract
-                client.subscribe("cabinet/+/telemetry", qos=1)
-                client.subscribe("cabinet/+/status", qos=1)
-                client.subscribe("cabinet/+/ack", qos=1)
+                # Đăng ký các topics theo Đặc tả Kỹ thuật V1.4 và hỗ trợ tương thích ngược
+                topics = [
+                    ("cabinet/v3/devices/+/telemetry", 1),
+                    ("cabinet/v3/devices/+/status", 1),
+                    ("cabinet/v3/devices/+/acks", 1),
+                    ("cabinet/+/telemetry", 1),
+                    ("cabinet/+/status", 1),
+                    ("cabinet/+/ack", 1),
+                ]
+                client.subscribe(topics)
                 self.stdout.write(self.style.NOTICE(
-                    "[MQTT] Đã subscribe: cabinet/+/telemetry, cabinet/+/status, cabinet/+/ack"
+                    "[MQTT] Đã subscribe topics V1.4 (cabinet/v3/devices/+/...) và tương thích cũ."
                 ))
             else:
                 self.stdout.write(self.style.ERROR(f"[MQTT] Kết nối thất bại với mã lỗi (RC): {rc}"))
 
         def on_message(client, userdata, msg):
             try:
+                close_old_connections()
                 topic = msg.topic
                 payload_str = msg.payload.decode('utf-8')
                 data = json.loads(payload_str)
                 parts = topic.split('/')
 
-                if len(parts) >= 3 and parts[0] == 'cabinet':
+                device_id = None
+                sub_topic = None
+
+                if len(parts) >= 5 and parts[0] == 'cabinet' and parts[1] == 'v3' and parts[2] == 'devices':
+                    device_id = parts[3]
+                    sub_topic = parts[4]
+                elif len(parts) >= 3 and parts[0] == 'cabinet':
                     device_id = parts[1]
                     sub_topic = parts[2]
 
-                    if sub_topic == 'telemetry':
-                        self.process_telemetry(device_id, data)
-                    elif sub_topic == 'ack':
-                        self.process_ack(device_id, data)
-                    elif sub_topic == 'status':
-                        self.process_status(device_id, data)
+                if not device_id or not sub_topic:
+                    return
+
+                if sub_topic in ('telemetry',):
+                    self.process_telemetry(device_id, data)
+                elif sub_topic in ('acks', 'ack'):
+                    self.process_ack(device_id, data)
+                elif sub_topic in ('status',):
+                    self.process_status(device_id, data)
             except Exception as e:
                 logger.error("[MQTT Worker] Lỗi xử lý tin nhắn từ topic %s: %s", msg.topic, e, exc_info=True)
 
@@ -98,26 +114,62 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("[MQTT Worker] Worker đang hoạt động. Nhấn Ctrl+C để dừng."))
         while True:
             try:
+                close_old_connections()
                 self.sweep_pending_outbox(client)
                 self.check_command_timeouts()
+                self.check_offline_devices()
                 time.sleep(5)
             except Exception as e:
                 logger.error("[MQTT Worker] Lỗi vòng lặp quét định kỳ: %s", e)
                 time.sleep(5)
 
     def process_telemetry(self, device_id: str, data: dict):
-        """Xử lý gói tin viễn trắc gửi lên từ ESP32"""
-        temperature = float(data.get('temperature', data.get('temp', 0.0)))
-        humidity = float(data.get('humidity', data.get('hum', 0.0)))
-
-        # Validate phạm vi vật lý hợp lệ
-        if not (-40.0 <= temperature <= 80.0 and 0.0 <= humidity <= 100.0):
-            logger.warning("[Telemetry] Gói tin ngoài phạm vi cảm biến DHT22 cho tủ %s: temp=%s, hum=%s",
-                           device_id, temperature, humidity)
+        """
+        Xử lý gói tin viễn trắc gửi lên từ ESP32.
+        Hỗ trợ dual-parser cho định dạng V1.4 (temperature_c, humidity_pct, fan_output: bool, sensor_ok)
+        và định dạng tương thích (temp, hum, fan).
+        Chặn thiết bị lạ không thuộc whitelist trong DB.
+        """
+        # 1. Whitelist validation: Chỉ nhận dữ liệu từ tủ mạng đã đăng ký trong hệ thống
+        device = Device.objects.filter(id=device_id).first()
+        if not device:
+            logger.warning("[MQTT Worker] Bỏ qua gói tin viễn trắc từ thiết bị chưa đăng ký: %s", device_id)
             return
 
-        fan_raw = data.get('fan_status', data.get('fan', 'OFF'))
-        if str(fan_raw).upper() in ('1', 'ON', 'TRUE'):
+        if device.status in ('LOCKED', 'DECOMMISSIONED'):
+            logger.warning("[MQTT Worker] Thiết bị %s đang ở trạng thái '%s', từ chối nhận viễn trắc.",
+                           device_id, device.status)
+            return
+
+        sensor_ok = data.get('sensor_ok', True)
+
+        # Dual-parser nhiệt độ & độ ẩm
+        temp_raw = data.get('temperature_c')
+        if temp_raw is None:
+            temp_raw = data.get('temperature', data.get('temp'))
+
+        hum_raw = data.get('humidity_pct')
+        if hum_raw is None:
+            hum_raw = data.get('humidity', data.get('hum'))
+
+        temperature = float(temp_raw) if temp_raw is not None else None
+        humidity = float(hum_raw) if hum_raw is not None else None
+
+        # Validate phạm vi vật lý của cảm biến DHT22 nếu cảm biến hoạt động bình thường
+        if sensor_ok and temperature is not None and humidity is not None:
+            if not (-40.0 <= temperature <= 80.0 and 0.0 <= humidity <= 100.0):
+                logger.warning("[Telemetry] Gói tin ngoài phạm vi cảm biến DHT22 cho tủ %s: temp=%s, hum=%s",
+                               device_id, temperature, humidity)
+                return
+
+        # Dual-parser trạng thái quạt
+        fan_raw = data.get('fan_output')
+        if fan_raw is None:
+            fan_raw = data.get('fan_status', data.get('fan', 'OFF'))
+
+        if isinstance(fan_raw, bool):
+            fan_status = 'ON' if fan_raw else 'OFF'
+        elif str(fan_raw).upper() in ('1', 'ON', 'TRUE'):
             fan_status = 'ON'
         elif str(fan_raw).upper() in ('FAULT', 'ERROR'):
             fan_status = 'FAULT'
@@ -133,19 +185,12 @@ class Command(BaseCommand):
         now = timezone.now()
 
         with transaction.atomic():
-            device, _ = Device.objects.get_or_create(
-                id=device_id,
-                defaults={
-                    'name': f"Tủ Mạng {device_id}",
-                    'status': 'ACTIVE',
-                    'source': 'REAL'
-                }
-            )
-
-            # Cập nhật số đo mới nhất vào bản chiếu (projection)
+            # Cập nhật bản chiếu số đo mới nhất (projection)
             device.last_seen_at = now
-            device.latest_temperature = temperature
-            device.latest_humidity = humidity
+            if temperature is not None:
+                device.latest_temperature = temperature
+            if humidity is not None:
+                device.latest_humidity = humidity
             device.latest_fan_status = fan_status
             device.latest_door_status = door_status
             device.latest_mode = mode
@@ -154,12 +199,12 @@ class Command(BaseCommand):
                 'latest_fan_status', 'latest_door_status', 'latest_mode', 'updated_at'
             ])
 
-            # Lưu vào chuỗi dữ liệu lịch sử Telemetry
+            # Lưu vào bảng dữ liệu chuỗi thời gian Telemetry
             Telemetry.objects.create(
                 device=device,
                 seq=seq,
-                temperature=temperature,
-                humidity=humidity,
+                temperature=temperature if temperature is not None else 0.0,
+                humidity=humidity if humidity is not None else 0.0,
                 fan_status=fan_status,
                 door_status=door_status,
                 mode=mode,
@@ -169,55 +214,80 @@ class Command(BaseCommand):
             )
 
             # Đánh giá cảnh báo tự động
-            self.evaluate_alerts(device, temperature, humidity, fan_status, door_status)
+            self.evaluate_alerts(device, temperature, humidity, fan_status, door_status, sensor_ok)
 
-    def evaluate_alerts(self, device: Device, temp: float, hum: float, fan: str, door: str):
-        """Kiểm tra các ngưỡng cảnh báo và cập nhật trạng thái Alert"""
-        # Lấy ngưỡng cấu hình từ applied_config nếu có, ngược lại dùng ngưỡng mặc định
+    def evaluate_alerts(self, device: Device, temp, hum, fan: str, door: str, sensor_ok: bool = True):
+        """
+        Động cơ đánh giá cảnh báo tự động với Hysteresis chống dao động ngưỡng:
+        - HIGH_TEMP: Ngưỡng cấu hình (mặc định 35°C), trễ phục hồi 1.0°C
+        - HIGH_HUMIDITY: Ngưỡng cấu hình (mặc định 80%), trễ phục hồi 3.0%
+        - SENSOR_FAULT: Cảm biến DHT22 báo lỗi
+        - DOOR_OPEN: Trạng thái cửa tủ đang mở
+        """
         cfg = device.applied_config or device.desired_config or {}
         max_temp = float(cfg.get('max_temp', 35.0))
         max_hum = float(cfg.get('max_hum', 80.0))
 
-        # 1. Cảnh báo nhiệt độ cao (HIGH_TEMP)
-        if temp > max_temp:
-            active_alert = Alert.objects.filter(device=device, alert_type='HIGH_TEMP', status__in=['OPEN', 'ACKNOWLEDGED']).first()
-            if not active_alert:
+        # 1. Cảnh báo lỗi cảm biến (SENSOR_FAULT)
+        if not sensor_ok:
+            active_fault = Alert.objects.filter(device=device, alert_type='SENSOR_FAULT', status__in=['OPEN', 'ACKNOWLEDGED']).first()
+            if not active_fault:
                 Alert.objects.create(
                     device=device,
-                    alert_type='HIGH_TEMP',
-                    severity='CRITICAL' if temp > max_temp + 5.0 else 'WARNING',
+                    alert_type='SENSOR_FAULT',
+                    severity='CRITICAL',
                     status='OPEN',
-                    message=f"Nhiệt độ tủ {device.id} đạt {temp}°C, vượt ngưỡng an toàn ({max_temp}°C)!",
-                    threshold=max_temp,
-                    current_value=temp
+                    message=f"Cảm biến DHT22 trên tủ {device.id} báo lỗi phần cứng hoặc mất kết nối."
                 )
-        elif temp <= (max_temp - 1.0):
-            # Tự động khắc phục cảnh báo khi nhiệt độ hạ về mức an toàn
-            Alert.objects.filter(device=device, alert_type='HIGH_TEMP', status__in=['OPEN', 'ACKNOWLEDGED']).update(
+        else:
+            Alert.objects.filter(device=device, alert_type='SENSOR_FAULT', status__in=['OPEN', 'ACKNOWLEDGED']).update(
                 status='RESOLVED',
                 resolved_at=timezone.now()
             )
 
-        # 2. Cảnh báo độ ẩm cao (HIGH_HUMIDITY)
-        if hum > max_hum:
-            active_alert = Alert.objects.filter(device=device, alert_type='HIGH_HUMIDITY', status__in=['OPEN', 'ACKNOWLEDGED']).first()
-            if not active_alert:
-                Alert.objects.create(
-                    device=device,
-                    alert_type='HIGH_HUMIDITY',
-                    severity='WARNING',
-                    status='OPEN',
-                    message=f"Độ ẩm tủ {device.id} đạt {hum}%, vượt ngưỡng an toàn ({max_hum}%)!",
-                    threshold=max_hum,
-                    current_value=hum
+        # 2. Cảnh báo nhiệt độ cao (HIGH_TEMP)
+        if temp is not None:
+            if temp > max_temp:
+                active_alert = Alert.objects.filter(device=device, alert_type='HIGH_TEMP', status__in=['OPEN', 'ACKNOWLEDGED']).first()
+                if not active_alert:
+                    Alert.objects.create(
+                        device=device,
+                        alert_type='HIGH_TEMP',
+                        severity='CRITICAL' if temp > max_temp + 5.0 else 'WARNING',
+                        status='OPEN',
+                        message=f"Nhiệt độ tủ {device.id} đạt {temp}°C, vượt ngưỡng an toàn ({max_temp}°C)!",
+                        threshold=max_temp,
+                        current_value=temp
+                    )
+            elif temp <= (max_temp - 1.0):
+                # Tự động khắc phục khi nhiệt độ hạ qua biên trễ 1.0°C
+                Alert.objects.filter(device=device, alert_type='HIGH_TEMP', status__in=['OPEN', 'ACKNOWLEDGED']).update(
+                    status='RESOLVED',
+                    resolved_at=timezone.now()
                 )
-        elif hum <= (max_hum - 2.0):
-            Alert.objects.filter(device=device, alert_type='HIGH_HUMIDITY', status__in=['OPEN', 'ACKNOWLEDGED']).update(
-                status='RESOLVED',
-                resolved_at=timezone.now()
-            )
 
-        # 3. Cảnh báo mở cửa tủ (DOOR_OPEN)
+        # 3. Cảnh báo độ ẩm cao (HIGH_HUMIDITY)
+        if hum is not None:
+            if hum > max_hum:
+                active_alert = Alert.objects.filter(device=device, alert_type='HIGH_HUMIDITY', status__in=['OPEN', 'ACKNOWLEDGED']).first()
+                if not active_alert:
+                    Alert.objects.create(
+                        device=device,
+                        alert_type='HIGH_HUMIDITY',
+                        severity='WARNING',
+                        status='OPEN',
+                        message=f"Độ ẩm tủ {device.id} đạt {hum}%, vượt ngưỡng an toàn ({max_hum}%)!",
+                        threshold=max_hum,
+                        current_value=hum
+                    )
+            elif hum <= (max_hum - 3.0):
+                # Tự động khắc phục khi độ ẩm hạ qua biên trễ 3.0%
+                Alert.objects.filter(device=device, alert_type='HIGH_HUMIDITY', status__in=['OPEN', 'ACKNOWLEDGED']).update(
+                    status='RESOLVED',
+                    resolved_at=timezone.now()
+                )
+
+        # 4. Cảnh báo mở cửa tủ (DOOR_OPEN)
         if door == 'OPEN':
             active_alert = Alert.objects.filter(device=device, alert_type='DOOR_OPEN', status__in=['OPEN', 'ACKNOWLEDGED']).first()
             if not active_alert:
@@ -235,7 +305,10 @@ class Command(BaseCommand):
             )
 
     def process_ack(self, device_id: str, data: dict):
-        """Xử lý gói tin ACK từ thiết bị khi đã thực thi xong lệnh điều khiển"""
+        """
+        Xử lý gói tin Application ACK từ thiết bị khi đã thực thi xong lệnh điều khiển.
+        Nếu ACK đến muộn sau khi lệnh đã chuyển sang TIMEOUT, cập nhật thành APPLIED_LATE.
+        """
         correlation_id = data.get('correlation_id') or data.get('command_id')
         if not correlation_id:
             logger.warning("[MQTT ACK] Gói tin ACK thiếu correlation_id: %s", data)
@@ -250,10 +323,17 @@ class Command(BaseCommand):
         is_success = str(data.get('status', 'SUCCESS')).upper() in ('SUCCESS', 'OK', 'APPLIED')
 
         with transaction.atomic():
-            cmd.status = 'ACKED' if is_success else 'FAILED'
-            cmd.acked_at = now
-            if not is_success:
+            if is_success:
+                # Nếu lệnh đã bị đánh dấu TIMEOUT trước đó, chuyển sang APPLIED_LATE
+                if cmd.status == 'TIMEOUT':
+                    cmd.status = 'APPLIED_LATE'
+                else:
+                    cmd.status = 'APPLIED'
+            else:
+                cmd.status = 'FAILED'
                 cmd.error_message = data.get('message', 'Thiết bị báo lỗi thực thi.')
+
+            cmd.acked_at = now
             cmd.save(update_fields=['status', 'acked_at', 'error_message'])
 
             # Đánh dấu OutboxMessage đã hoàn tất
@@ -267,7 +347,7 @@ class Command(BaseCommand):
                 function_key="DEVICE_CONTROL",
                 action="COMMAND_ACKNOWLEDGED",
                 outcome="SUCCESS" if is_success else "FAILED",
-                summary=f"Nhận phản hồi ACK từ tủ {device_id} cho lệnh #{cmd.id}",
+                summary=f"Nhận phản hồi ACK từ tủ {device_id} cho lệnh #{cmd.id} (Trạng thái: {cmd.status})",
                 request_id=str(uuid.uuid4()),
                 actor_user=cmd.actor,
                 actor_type=AuditLog.ActorType.SYSTEM,
@@ -322,3 +402,30 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(
                 f"[TIMEOUT] Lệnh #{cmd.id} gửi tới tủ {cmd.device_id} đã hết thời gian chờ ACK."
             ))
+
+    def check_offline_devices(self):
+        """Kiểm tra và kích hoạt cảnh báo DEVICE_OFFLINE nếu tủ không gửi viễn trắc quá 30 giây"""
+        offline_threshold = timezone.now() - timedelta(seconds=30)
+        offline_devices = Device.objects.filter(status='ACTIVE', last_seen_at__lt=offline_threshold)
+        for dev in offline_devices:
+            active_offline = Alert.objects.filter(
+                device=dev, alert_type='DEVICE_OFFLINE', status__in=['OPEN', 'ACKNOWLEDGED']
+            ).first()
+            if not active_offline:
+                Alert.objects.create(
+                    device=dev,
+                    alert_type='DEVICE_OFFLINE',
+                    severity='WARNING',
+                    status='OPEN',
+                    message=f"Tủ mạng {dev.id} đã mất kết nối viễn trắc quá 30 giây."
+                )
+
+        # Tự động giải tỏa cảnh báo DEVICE_OFFLINE khi thiết bị gửi dữ liệu trở lại
+        online_devices = Device.objects.filter(status='ACTIVE', last_seen_at__gte=offline_threshold)
+        for dev in online_devices:
+            Alert.objects.filter(
+                device=dev, alert_type='DEVICE_OFFLINE', status__in=['OPEN', 'ACKNOWLEDGED']
+            ).update(
+                status='RESOLVED',
+                resolved_at=timezone.now()
+            )

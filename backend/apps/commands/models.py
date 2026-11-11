@@ -12,7 +12,9 @@ class Command(models.Model):
     STATUS_CHOICES = (
         ('PENDING', 'Chờ xử lý / gửi đi'),
         ('SENT', 'Đã xuất bản tới Broker MQTT'),
-        ('ACKED', 'Thiết bị đã thực thi và phản hồi ACK thành công'),
+        ('APPLIED', 'Thiết bị đã thực thi và phản hồi ACK thành công'),
+        ('APPLIED_LATE', 'Thiết bị thực thi và phản hồi ACK sau khi đã timeout'),
+        ('ACKED', 'Đã nhận phản hồi ACK thành công (tương đương APPLIED)'),
         ('FAILED', 'Thực thi thất bại trên thiết bị'),
         ('TIMEOUT', 'Quá thời gian chờ phản hồi ACK'),
         ('CANCELLED', 'Đã hủy lệnh'),

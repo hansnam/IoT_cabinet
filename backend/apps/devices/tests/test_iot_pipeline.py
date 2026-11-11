@@ -112,6 +112,35 @@ class DeviceAPITestCase(TestCase):
         )
         DeviceAccess.objects.create(user=self.user, device=self.device, role='OPERATE')
 
+    def test_anonymous_user_denied_access(self):
+        """Người dùng ẩn danh bị từ chối truy cập (401/403) vào toàn bộ API thiết bị"""
+        anon_client = APIClient()
+        res_list = anon_client.get('/api/devices/')
+        self.assertIn(res_list.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+
+        res_control = anon_client.post(
+            f'/api/devices/{self.device.id}/control/',
+            {'command': 'SET_FAN', 'fan': 'ON'},
+            format='json'
+        )
+        self.assertIn(res_control.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+
+    def test_disallow_destructive_http_methods(self):
+        """Cấm xóa cứng thiết bị và cảnh báo qua REST API (405 Method Not Allowed)"""
+        # Cấm DELETE thiết bị
+        del_device_res = self.client.delete(f'/api/devices/{self.device.id}/')
+        self.assertEqual(del_device_res.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+        # Cấm DELETE cảnh báo
+        alert = Alert.objects.create(
+            device=self.device,
+            alert_type='HIGH_TEMP',
+            severity='WARNING',
+            status='OPEN'
+        )
+        del_alert_res = self.client.delete(f'/api/alerts/{alert.id}/')
+        self.assertEqual(del_alert_res.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
     def test_get_devices_list(self):
         """GET /api/devices/ trả về danh sách thiết bị"""
         res = self.client.get('/api/devices/')
@@ -213,6 +242,34 @@ class DeviceAPITestCase(TestCase):
         self.assertEqual(alert.status, 'RESOLVED')
         self.assertIsNotNone(alert.resolved_at)
 
+    def test_csv_export_and_formula_injection_defense(self):
+        """Kiểm tra xuất dữ liệu CSV viễn trắc với UTF-8 BOM và chống CSV Injection"""
+        Telemetry.objects.create(
+            device=self.device,
+            seq=1,
+            temperature=31.5,
+            humidity=62.0,
+            fan_status='=CMD|dir',  # Ký tự nguy hiểm kiểm thử CSV injection
+            mode='AUTO',
+            measured_at=timezone.now()
+        )
+
+        # Test endpoint /api/devices/{id}/export/
+        res = self.client.get(f'/api/devices/{self.device.id}/export/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertTrue(res['Content-Type'].startswith('text/csv'))
+        # Kiểm tra UTF-8 BOM (\xef\xbb\xbf)
+        self.assertTrue(res.content.startswith(b'\xef\xbb\xbf'))
+        content_text = res.content.decode('utf-8')
+        # Kiểm tra tiêu đề cột tiếng Việt
+        self.assertIn('Nhiệt độ (°C)', content_text)
+        # Kiểm tra giá trị '=CMD|dir' được thêm tiền tố dấu nháy đơn "'"
+        self.assertIn("'=CMD|dir", content_text)
+
+        # Test alias endpoint /api/telemetry/export/?device_id={id}
+        tele_res = self.client.get(f'/api/telemetry/export/?device_id={self.device.id}')
+        self.assertEqual(tele_res.status_code, status.HTTP_200_OK)
+
 
 class MQTTWorkerProcessingTestCase(TestCase):
     """Kiểm tra logic xử lý của MQTT Worker: Telemetry Ingest, Alerting, và Command ACK"""
@@ -279,19 +336,19 @@ class MQTTWorkerProcessingTestCase(TestCase):
         self.assertEqual(alert.status, 'RESOLVED')
 
     def test_process_ack_updates_command_status(self):
-        """Nhận ACK từ node cập nhật trạng thái Command thành ACKED"""
+        """Nhận ACK từ node cập nhật trạng thái Command thành APPLIED"""
         corr_id = str(uuid.uuid4())
         cmd = Command.objects.create(
             device=self.device,
             command_type='SET_FAN',
-            payload={'fan': 'ON'},
+            payload={'fan': 'ON', 'on': True},
             status='SENT',
             correlation_id=corr_id
         )
         outbox = OutboxMessage.objects.create(
             command=cmd,
-            topic=f"cabinet/{self.device.id}/command",
-            payload={'fan': 'ON'},
+            topic=f"cabinet/v3/devices/{self.device.id}/commands",
+            payload={'fan': 'ON', 'on': True},
             status='PENDING'
         )
 
@@ -303,8 +360,70 @@ class MQTTWorkerProcessingTestCase(TestCase):
         self.worker.process_ack(self.device.id, ack_payload)
 
         cmd.refresh_from_db()
-        self.assertEqual(cmd.status, 'ACKED')
+        self.assertEqual(cmd.status, 'APPLIED')
         self.assertIsNotNone(cmd.acked_at)
 
         outbox.refresh_from_db()
         self.assertEqual(outbox.status, 'PUBLISHED')
+
+    def test_process_late_ack_transitions_to_applied_late(self):
+        """ACK đến muộn sau khi lệnh đã timeout chuyển trạng thái sang APPLIED_LATE"""
+        corr_id = str(uuid.uuid4())
+        cmd = Command.objects.create(
+            device=self.device,
+            command_type='SET_FAN',
+            payload={'fan': 'ON', 'on': True},
+            status='TIMEOUT',
+            correlation_id=corr_id
+        )
+
+        ack_payload = {
+            'correlation_id': corr_id,
+            'status': 'SUCCESS',
+            'message': 'Late ACK from ESP32 after reconnect.'
+        }
+        self.worker.process_ack(self.device.id, ack_payload)
+
+        cmd.refresh_from_db()
+        self.assertEqual(cmd.status, 'APPLIED_LATE')
+
+    def test_process_v3_telemetry_payload_and_sensor_fault(self):
+        """Hỗ trợ payload V1.4 (temperature_c, humidity_pct, fan_output: bool, sensor_ok)"""
+        v3_payload = {
+            'temperature_c': 29.8,
+            'humidity_pct': 58.2,
+            'fan_output': True,
+            'sensor_ok': True,
+            'boot_id': 'boot-test-123',
+            'seq': 42
+        }
+        self.worker.process_telemetry(self.device.id, v3_payload)
+
+        self.device.refresh_from_db()
+        self.assertEqual(self.device.latest_temperature, 29.8)
+        self.assertEqual(self.device.latest_humidity, 58.2)
+        self.assertEqual(self.device.latest_fan_status, 'ON')
+
+        # Khi sensor_ok = False -> Kích hoạt SENSOR_FAULT
+        fault_payload = {
+            'temperature_c': 0.0,
+            'humidity_pct': 0.0,
+            'sensor_ok': False,
+            'seq': 43
+        }
+        self.worker.process_telemetry(self.device.id, fault_payload)
+        fault_alert = Alert.objects.filter(device=self.device, alert_type='SENSOR_FAULT', status='OPEN').first()
+        self.assertIsNotNone(fault_alert)
+        self.assertEqual(fault_alert.severity, 'CRITICAL')
+
+    def test_check_offline_devices_creates_alert(self):
+        """Thiết bị không gửi viễn trắc quá 30 giây kích hoạt DEVICE_OFFLINE"""
+        from datetime import timedelta
+        self.device.last_seen_at = timezone.now() - timedelta(seconds=45)
+        self.device.save(update_fields=['last_seen_at'])
+
+        self.worker.check_offline_devices()
+
+        offline_alert = Alert.objects.filter(device=self.device, alert_type='DEVICE_OFFLINE', status='OPEN').first()
+        self.assertIsNotNone(offline_alert)
+        self.assertEqual(offline_alert.severity, 'WARNING')

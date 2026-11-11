@@ -1,7 +1,7 @@
 import uuid
 from django.db import transaction
 from django.utils import timezone
-from rest_framework import status, viewsets
+from rest_framework import mixins, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -18,7 +18,12 @@ from apps.devices.serializers import (
 )
 
 
-class DeviceViewSet(viewsets.ModelViewSet):
+class DeviceViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
     """
     API ViewSet quản lý Thiết bị tủ mạng (Devices):
     - GET /api/devices/ : Danh sách thiết bị trong phạm vi phân quyền (Scope filtering)
@@ -28,19 +33,18 @@ class DeviceViewSet(viewsets.ModelViewSet):
     - GET/POST /api/devices/{id}/config/ : Đọc / Cập nhật cấu hình mong muốn
     """
     serializer_class = DeviceSerializer
+    permission_classes = [permissions.IsAuthenticated]
     lookup_field = 'id'
 
     def get_queryset(self):
         user = self.request.user
-        if user and user.is_authenticated:
-            return visible_devices(user)
-        # Trong môi trường dev/local nếu chưa đăng nhập qua session, cho phép xem danh sách
-        return Device.objects.all()
+        if not user or not user.is_authenticated:
+            return Device.objects.none()
+        return visible_devices(user)
 
     def retrieve(self, request, *args, **kwargs):
         device = self.get_object()
-        if request.user and request.user.is_authenticated:
-            require_device_permission(request.user, device, action='VIEW')
+        require_device_permission(request.user, device, action='VIEW')
         serializer = self.get_serializer(device)
         return Response(serializer.data)
 
@@ -48,8 +52,7 @@ class DeviceViewSet(viewsets.ModelViewSet):
     def latest(self, request, id=None):
         """Trả về dữ liệu viễn trắc và trạng thái mới nhất của tủ mạng"""
         device = self.get_object()
-        if request.user and request.user.is_authenticated:
-            require_device_permission(request.user, device, action='VIEW')
+        require_device_permission(request.user, device, action='VIEW')
 
         data = {
             'device_id': device.id,
@@ -83,9 +86,8 @@ class DeviceViewSet(viewsets.ModelViewSet):
             )
 
         # Kiểm tra quyền OPERATE
-        user = request.user if (request.user and request.user.is_authenticated) else None
-        if user:
-            require_device_permission(user, device, action='OPERATE')
+        require_device_permission(request.user, device, action='OPERATE')
+        user = request.user
 
         serializer = DeviceControlSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -103,6 +105,7 @@ class DeviceViewSet(viewsets.ModelViewSet):
         }
         if 'fan' in validated_data:
             payload['fan'] = validated_data['fan']
+            payload['on'] = (validated_data['fan'] == 'ON')
         if 'mode' in validated_data:
             payload['mode'] = validated_data['mode']
 
@@ -121,7 +124,7 @@ class DeviceViewSet(viewsets.ModelViewSet):
 
             outbox = OutboxMessage.objects.create(
                 command=cmd,
-                topic=f"cabinet/{device.id}/command",
+                topic=f"cabinet/v3/devices/{device.id}/commands",
                 payload=payload,
                 qos=1,
                 status='PENDING'
@@ -171,15 +174,15 @@ class DeviceViewSet(viewsets.ModelViewSet):
         device = self.get_object()
 
         if request.method == 'GET':
+            require_device_permission(request.user, device, action='VIEW')
             return Response({
                 'device_id': device.id,
                 'desired_config': device.desired_config,
                 'applied_config': device.applied_config,
             })
 
-        user = request.user if (request.user and request.user.is_authenticated) else None
-        if user:
-            require_device_permission(user, device, action='OPERATE')
+        require_device_permission(request.user, device, action='OPERATE')
+        user = request.user
 
         serializer = DeviceConfigSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -241,3 +244,12 @@ class DeviceViewSet(viewsets.ModelViewSet):
             'desired_config': new_desired,
             'message': f"Đã cập nhật desired_config v{latest_version} và phát lệnh đồng bộ xuống tủ mạng."
         })
+
+    @action(detail=True, methods=['get'])
+    def export(self, request, id=None):
+        """Xuất lịch sử đo đạc viễn trắc ra file CSV (có UTF-8 BOM và chống CSV Injection)"""
+        device = self.get_object()
+        require_device_permission(request.user, device, action='VIEW')
+
+        from apps.telemetry.views import build_telemetry_csv_response
+        return build_telemetry_csv_response(device, request.query_params)

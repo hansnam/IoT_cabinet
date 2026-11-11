@@ -6,5 +6,6 @@ router = DefaultRouter()
 router.register(r'', DeviceViewSet, basename='device')
 
 urlpatterns = [
+    path('<str:id>/telemetry/export/', DeviceViewSet.as_view({'get': 'export'}), name='device-telemetry-export'),
     path('', include(router.urls)),
 ]
