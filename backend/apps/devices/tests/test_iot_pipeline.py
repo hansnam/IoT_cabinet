@@ -416,6 +416,67 @@ class MQTTWorkerProcessingTestCase(TestCase):
         self.assertIsNotNone(fault_alert)
         self.assertEqual(fault_alert.severity, 'CRITICAL')
 
+    def test_tv1_firmware_exact_payload_contract(self):
+        """Kiểm tra tương thích 100% với định dạng bản tin firmware ESP32 của TV1"""
+        # 1. Telemetry khi DHT22 lỗi (temperature_c=None, humidity_pct=None, sensor_ok=False)
+        tv1_fault_telemetry = {
+            "schema_version": 3,
+            "device_id": self.device.id,
+            "profile": "CONTROLLER",
+            "fan_binding_id": None,
+            "boot_id": str(uuid.uuid4()),
+            "connection_id": str(uuid.uuid4()),
+            "seq": 15,
+            "measured_at": "2026-10-09T13:00:15Z",
+            "clock_synced": True,
+            "uptime_ms": 75000,
+            "temperature_c": None,
+            "humidity_pct": None,
+            "sensor_ok": False,
+            "fan_output": True,
+            "mode": "AUTO",
+            "config_version": 1,
+            "config_hash": "3520a5738ade36fecf0a3f72ecf34e9f53fb2b2fe23e0a20245393e6a57a91cb",
+            "fault_code": "DHT_READ_ERROR",
+            "extra": {},
+        }
+        self.worker.process_telemetry(self.device.id, tv1_fault_telemetry)
+        self.device.refresh_from_db()
+        self.assertEqual(self.device.latest_fan_status, 'ON')
+        alert = Alert.objects.filter(device=self.device, alert_type='SENSOR_FAULT', status='OPEN').first()
+        self.assertIsNotNone(alert)
+        self.assertEqual(alert.severity, 'CRITICAL')
+
+        # 2. ACK payload chuẩn V1.4 do ESP32 phát ra
+        cmd_id = str(uuid.uuid4())
+        cmd = Command.objects.create(
+            device=self.device,
+            command_type='SET_FAN',
+            payload={'fan': 'ON', 'on': True},
+            status='SENT',
+            correlation_id=cmd_id
+        )
+        tv1_ack = {
+            "schema_version": 3,
+            "device_id": self.device.id,
+            "command_id": cmd_id,
+            "status": "APPLIED",
+            "type": "SET_FAN",
+            "boot_id": str(uuid.uuid4()),
+            "connection_id": str(uuid.uuid4()),
+            "device_command_seq": 8,
+            "executed_at": "2026-10-09T13:00:01Z",
+            "result": {
+                "fan_output": True,
+                "mode": "MANUAL",
+                "config_version": 1,
+            },
+        }
+        self.worker.process_ack(self.device.id, tv1_ack)
+        cmd.refresh_from_db()
+        self.assertEqual(cmd.status, 'APPLIED')
+        self.assertIsNotNone(cmd.acked_at)
+
     def test_check_offline_devices_creates_alert(self):
         """Thiết bị không gửi viễn trắc quá 30 giây kích hoạt DEVICE_OFFLINE"""
         from datetime import timedelta
