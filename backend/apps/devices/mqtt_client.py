@@ -27,6 +27,10 @@ def publish_command_to_broker(device_id: str, payload: dict, qos: int = 1) -> bo
 
     try:
         client = mqtt.Client(client_id=f"django_api_publisher_{device_id}")
+        mqtt_user = getattr(settings, 'MQTT_USERNAME', '')
+        mqtt_pass = getattr(settings, 'MQTT_PASSWORD', '')
+        if mqtt_user:
+            client.username_pw_set(mqtt_user, mqtt_pass)
         client.connect(
             settings.MQTT_BROKER_HOST,
             settings.MQTT_BROKER_PORT,

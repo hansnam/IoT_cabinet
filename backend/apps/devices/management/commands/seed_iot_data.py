@@ -18,7 +18,29 @@ class Command(BaseCommand):
 
         now = timezone.now()
 
-        # 1. Tạo 2 thiết bị tủ mạng (1 node thật và 1 node mô phỏng)
+        # 1. Tạo thiết bị tủ mạng khớp với firmware ESP32 (cabinet-001) và 2 tủ mẫu
+        cab_fw, created_fw = Device.objects.get_or_create(
+            id='cabinet-001',
+            defaults={
+                'name': 'Tủ Mạng ESP32 Wokwi / Node Thực Tế (cabinet-001)',
+                'source': 'REAL',
+                'status': 'ACTIVE',
+                'hardware_version': 'esp32-wroom32-dht22-relay-controller-v1',
+                'firmware_version': '1.2.0',
+                'ip_address': '192.168.1.100',
+                'desired_config': {'max_temp': 35.0, 'max_hum': 80.0, 'fan_on_c': 30.0, 'fan_off_c': 28.0, 'auto_cool': True},
+                'applied_config': {'max_temp': 35.0, 'max_hum': 80.0, 'fan_on_c': 30.0, 'fan_off_c': 28.0, 'auto_cool': True},
+                'last_seen_at': now,
+                'latest_temperature': 29.5,
+                'latest_humidity': 64.0,
+                'latest_fan_status': 'OFF',
+                'latest_door_status': 'CLOSED',
+                'latest_mode': 'AUTO',
+            }
+        )
+        if created_fw:
+            self.stdout.write(self.style.SUCCESS("  + Tạo mới thiết bị chuẩn Firmware: cabinet-001 (REAL)"))
+
         cab1, created1 = Device.objects.get_or_create(
             id='CABINET-01',
             defaults={
@@ -80,6 +102,11 @@ class Command(BaseCommand):
         # 3. Phân quyền DeviceAccess cho các user sẵn có trong hệ thống
         users = User.objects.all()
         for u in users:
+            DeviceAccess.objects.get_or_create(
+                user=u,
+                device=cab_fw,
+                defaults={'role': 'OPERATE', 'granted_at': now}
+            )
             DeviceAccess.objects.get_or_create(
                 user=u,
                 device=cab1,

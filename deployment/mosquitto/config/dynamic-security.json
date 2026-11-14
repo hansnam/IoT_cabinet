@@ -1,0 +1,141 @@
+{
+  "defaultACLAccess": {
+    "publishClientSend": false,
+    "publishClientReceive": true,
+    "subscribe": false,
+    "unsubscribe": true
+  },
+  "clients": [
+    {
+      "username": "django_worker",
+      "textname": "Django Backend & MQTT Worker",
+      "password": "atz/k7FKza458EqeoUkfeMlgzsi5nL9C6mmrQwfSptJe4VNCrOgqAHvQ1P/72Fz0YfD+lCOxlReJnB0LHBKcXA==",
+      "salt": "75VyDGjbTJt3A00y",
+      "iterations": 101,
+      "roles": [
+        {
+          "rolename": "backend_admin",
+          "priority": -1
+        }
+      ]
+    },
+    {
+      "username": "cabinet-001",
+      "textname": "ESP32 Node cabinet-001",
+      "password": "xpSQOj+u9g5vsqusnQ3LPCQNefureIjSt/1rtiuxllfj+kC4abPr9jIoB+RM6NpgQUPA8UPRe4nDw1LI1315aQ==",
+      "salt": "iGeWQ6Ph/gOy9azx",
+      "iterations": 101,
+      "roles": [
+        {
+          "rolename": "esp32_device_role",
+          "priority": -1
+        }
+      ]
+    },
+    {
+      "username": "CABINET-01",
+      "textname": "ESP32 Node CABINET-01",
+      "password": "NJPvmVZRRnbhLvmieOZ5L14I4GcXon+BtwRTwYxoENlhLzPBofkVfo4VttxsjTmT/Syd37IhiC02L12/d5e+NA==",
+      "salt": "KOw3CgCFLnY+56a4",
+      "iterations": 101,
+      "roles": [
+        {
+          "rolename": "esp32_device_role",
+          "priority": -1
+        }
+      ]
+    },
+    {
+      "username": "esp32_device",
+      "textname": "Shared ESP32 Device Account",
+      "password": "4Z56rGOwiBjy99zB2/jFhSSJbqOorL71HS4VmFSMFh7CiIUqXN7s4UnC4cu+yEBjA/ad8p+5bxNw0fotEXm0gg==",
+      "salt": "4lIiHog6D62gpdf0",
+      "iterations": 101,
+      "roles": [
+        {
+          "rolename": "esp32_device_role",
+          "priority": -1
+        }
+      ]
+    }
+  ],
+  "groups": [],
+  "roles": [
+    {
+      "rolename": "backend_admin",
+      "acls": [
+        {
+          "acltype": "publishClientSend",
+          "topic": "#",
+          "priority": -1,
+          "allow": true
+        },
+        {
+          "acltype": "publishClientReceive",
+          "topic": "#",
+          "priority": -1,
+          "allow": true
+        },
+        {
+          "acltype": "subscribePattern",
+          "topic": "#",
+          "priority": -1,
+          "allow": true
+        },
+        {
+          "acltype": "unsubscribePattern",
+          "topic": "#",
+          "priority": -1,
+          "allow": true
+        }
+      ]
+    },
+    {
+      "rolename": "esp32_device_role",
+      "acls": [
+        {
+          "acltype": "publishClientSend",
+          "topic": "cabinet/v3/devices/+/#",
+          "priority": -1,
+          "allow": true
+        },
+        {
+          "acltype": "publishClientSend",
+          "topic": "cabinet/+/#",
+          "priority": -1,
+          "allow": true
+        },
+        {
+          "acltype": "publishClientReceive",
+          "topic": "cabinet/v3/devices/+/#",
+          "priority": -1,
+          "allow": true
+        },
+        {
+          "acltype": "publishClientReceive",
+          "topic": "cabinet/+/#",
+          "priority": -1,
+          "allow": true
+        },
+        {
+          "acltype": "subscribePattern",
+          "topic": "cabinet/v3/devices/+/commands",
+          "priority": -1,
+          "allow": true
+        },
+        {
+          "acltype": "subscribePattern",
+          "topic": "cabinet/+/command",
+          "priority": -1,
+          "allow": true
+        },
+        {
+          "acltype": "unsubscribePattern",
+          "topic": "cabinet/#",
+          "priority": -1,
+          "allow": true
+        }
+      ]
+    }
+  ]
+}

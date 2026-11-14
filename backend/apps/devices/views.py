@@ -1,3 +1,5 @@
+import hashlib
+import json
 import uuid
 from django.db import transaction
 from django.utils import timezone
@@ -16,6 +18,35 @@ from apps.devices.serializers import (
     DeviceControlSerializer,
     DeviceSerializer,
 )
+
+
+def build_esp32_config_json_and_hash(desired_config: dict) -> tuple[str, str]:
+    """
+    Chuẩn hóa cấu hình mong muốn thành chuỗi JSON và mã băm SHA-256 khớp 100%
+    với hàm onMqttMessage(APPLY_CONFIG) trong firmware/scr/main.cpp của TV1.
+    """
+    max_temp = float(desired_config.get('temp_alert_c', desired_config.get('max_temp', 35.0)))
+    max_hum = float(desired_config.get('humidity_alert_pct', desired_config.get('max_hum', 80.0)))
+    fan_on = float(desired_config.get('fan_on_c', min(max_temp - 2.0, 30.0)))
+    fan_off = float(desired_config.get('fan_off_c', fan_on - 2.0))
+    if fan_off >= fan_on:
+        fan_off = fan_on - 2.0
+
+    cfg_obj = {
+        'profile': desired_config.get('profile', 'CONTROLLER'),
+        'fan_binding_id': desired_config.get('fan_binding_id', None),
+        'fan_on_c': fan_on,
+        'fan_off_c': fan_off,
+        'temp_alert_c': max_temp,
+        'humidity_alert_pct': max_hum,
+        'temp_clear_margin_c': float(desired_config.get('temp_clear_margin_c', 1.0)),
+        'humidity_clear_margin_pct': float(desired_config.get('humidity_clear_margin_pct', 3.0)),
+        'telemetry_interval_ms': int(desired_config.get('telemetry_interval_ms', 5000)),
+        'manual_timeout_s': int(desired_config.get('manual_timeout_s', 60)),
+    }
+    config_json = json.dumps(cfg_obj, separators=(',', ':'), sort_keys=True)
+    content_hash = hashlib.sha256(config_json.encode('utf-8')).hexdigest()
+    return config_json, content_hash
 
 
 class DeviceViewSet(
@@ -78,8 +109,8 @@ class DeviceViewSet(
         """
         device = self.get_object()
 
-        # Kiểm tra trạng thái vòng đời
-        if device.status in ('LOCKED', 'DECOMMISSIONED'):
+        # Kiểm tra trạng thái vòng đời (chỉ thiết bị ACTIVE mới được nhận lệnh điều khiển)
+        if device.status in ('LOCKED', 'DECOMMISSIONED', 'MAINTENANCE'):
             return Response(
                 {"error": {"code": "DEVICE_LOCKED", "message": f"Tủ mạng đang ở trạng thái '{device.status}', không thể điều khiển."}},
                 status=status.HTTP_400_BAD_REQUEST
@@ -95,19 +126,30 @@ class DeviceViewSet(
 
         command_type = validated_data.get('command', 'SET_FAN')
         correlation_id = str(uuid.uuid4())
+        cmd_seq = Command.objects.filter(device=device).count() + 1
 
+        params = {}
         payload = {
+            'schema_version': 3,
             'command_id': correlation_id,
             'correlation_id': correlation_id,
+            'type': command_type,
             'command': command_type,
             'device_id': device.id,
+            'device_command_seq': cmd_seq,
             'timestamp': timezone.now().isoformat(),
         }
         if 'fan' in validated_data:
+            fan_bool = (validated_data['fan'] == 'ON')
             payload['fan'] = validated_data['fan']
-            payload['on'] = (validated_data['fan'] == 'ON')
+            payload['on'] = fan_bool
+            params['on'] = fan_bool
+            params['fan'] = validated_data['fan']
         if 'mode' in validated_data:
             payload['mode'] = validated_data['mode']
+            params['mode'] = validated_data['mode']
+            params['duration_s'] = int(request.data.get('duration_s', 60))
+        payload['params'] = params
 
         request_id = getattr(request, 'request_id', str(uuid.uuid4()))
 
@@ -181,6 +223,12 @@ class DeviceViewSet(
                 'applied_config': device.applied_config,
             })
 
+        if device.status in ('LOCKED', 'DECOMMISSIONED', 'MAINTENANCE'):
+            return Response(
+                {"error": {"code": "DEVICE_LOCKED", "message": f"Tủ mạng đang ở trạng thái '{device.status}', không thể cập nhật cấu hình."}},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         require_device_permission(request.user, device, action='OPERATE')
         user = request.user
 
@@ -201,13 +249,23 @@ class DeviceViewSet(
             )
 
             correlation_id = str(uuid.uuid4())
+            cmd_seq = Command.objects.filter(device=device).count() + 1
+            config_json, content_hash = build_esp32_config_json_and_hash(new_desired)
             payload = {
+                'schema_version': 3,
                 'command_id': correlation_id,
                 'correlation_id': correlation_id,
+                'type': 'APPLY_CONFIG',
                 'command': 'APPLY_CONFIG',
                 'device_id': device.id,
+                'device_command_seq': cmd_seq,
                 'config_version': latest_version,
                 'config': new_desired,
+                'params': {
+                    'config_version': latest_version,
+                    'config_json': config_json,
+                    'content_hash': content_hash,
+                },
                 'timestamp': timezone.now().isoformat(),
             }
 

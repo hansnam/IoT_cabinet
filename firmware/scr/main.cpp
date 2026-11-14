@@ -13,6 +13,13 @@
   #include "config.example.h"
 #endif
 
+#ifndef MQTT_USERNAME
+  #define MQTT_USERNAME "cabinet-001"
+#endif
+#ifndef MQTT_PASSWORD
+  #define MQTT_PASSWORD "Cabinet001@Secret2026"
+#endif
+
 // Khởi tạo đối tượng phần cứng & dịch vụ
 DHTesp dht;
 WiFiClient espClient;

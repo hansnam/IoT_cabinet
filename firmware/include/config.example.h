@@ -15,7 +15,7 @@
 #define MQTT_HOST           "192.168.1.100"
 #define MQTT_PORT           1883
 #define MQTT_USERNAME       "cabinet-001"
-#define MQTT_PASSWORD       "YOUR_PROVISIONED_SECRET"
+#define MQTT_PASSWORD       "Cabinet001@Secret2026"
 
 // Phân bổ chân GPIO
 #define PIN_DHT             23  // Chân DATA của DHT22

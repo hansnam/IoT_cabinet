@@ -40,6 +40,10 @@ class Command(BaseCommand):
         ))
 
         client = mqtt.Client(client_id="django_mqtt_worker_service")
+        mqtt_user = getattr(settings, 'MQTT_USERNAME', '')
+        mqtt_pass = getattr(settings, 'MQTT_PASSWORD', '')
+        if mqtt_user:
+            client.username_pw_set(mqtt_user, mqtt_pass)
 
         def on_connect(client, userdata, flags, rc):
             if rc == 0:
@@ -136,7 +140,7 @@ class Command(BaseCommand):
             logger.warning("[MQTT Worker] Bỏ qua gói tin viễn trắc từ thiết bị chưa đăng ký: %s", device_id)
             return
 
-        if device.status in ('LOCKED', 'DECOMMISSIONED'):
+        if device.status in ('LOCKED', 'DECOMMISSIONED', 'MAINTENANCE'):
             logger.warning("[MQTT Worker] Thiết bị %s đang ở trạng thái '%s', từ chối nhận viễn trắc.",
                            device_id, device.status)
             return
@@ -331,10 +335,30 @@ class Command(BaseCommand):
                     cmd.status = 'APPLIED'
             else:
                 cmd.status = 'FAILED'
-                cmd.error_message = data.get('message', 'Thiết bị báo lỗi thực thi.')
+                cmd.error_message = (
+                    data.get('error_code')
+                    or data.get('reason')
+                    or data.get('detail')
+                    or data.get('message')
+                    or 'Thiết bị báo lỗi thực thi.'
+                )
 
             cmd.acked_at = now
             cmd.save(update_fields=['status', 'acked_at', 'error_message'])
+
+            # Đồng bộ trạng thái quạt và chế độ thực tế từ trường result của gói ACK
+            result_data = data.get('result')
+            if isinstance(result_data, dict):
+                device = cmd.device
+                update_fields = ['last_seen_at']
+                device.last_seen_at = now
+                if 'fan_output' in result_data and result_data['fan_output'] is not None:
+                    device.latest_fan_status = 'ON' if bool(result_data['fan_output']) else 'OFF'
+                    update_fields.append('latest_fan_status')
+                if 'mode' in result_data and result_data['mode']:
+                    device.latest_mode = str(result_data['mode']).upper()
+                    update_fields.append('latest_mode')
+                device.save(update_fields=update_fields)
 
             # Đánh dấu OutboxMessage đã hoàn tất
             OutboxMessage.objects.filter(command=cmd).update(
@@ -363,9 +387,43 @@ class Command(BaseCommand):
         ))
 
     def process_status(self, device_id: str, data: dict):
-        """Xử lý gói tin heartbeat / status từ node"""
+        """Xử lý gói tin heartbeat / status / LWT từ node ESP32"""
+        device = Device.objects.filter(id=device_id).first()
+        if not device or device.status in ('LOCKED', 'DECOMMISSIONED', 'MAINTENANCE'):
+            return
+
         now = timezone.now()
-        Device.objects.filter(id=device_id).update(last_seen_at=now)
+        conn_str = str(data.get('connection', '')).upper()
+        is_offline = (conn_str == 'OFFLINE') or (data.get('online') is False)
+
+        if is_offline:
+            # Bản tin LWT hoặc báo ngắt kết nối: lùi last_seen_at quá ngưỡng 30s và phát cảnh báo DEVICE_OFFLINE
+            device.last_seen_at = now - timedelta(seconds=60)
+            device.save(update_fields=['last_seen_at'])
+            active_offline = Alert.objects.filter(
+                device=device, alert_type='DEVICE_OFFLINE', status__in=['OPEN', 'ACKNOWLEDGED']
+            ).first()
+            if not active_offline:
+                Alert.objects.create(
+                    device=device,
+                    alert_type='DEVICE_OFFLINE',
+                    severity='WARNING',
+                    status='OPEN',
+                    message=f"Tủ mạng {device.id} báo mất kết nối (LWT / OFFLINE)."
+                )
+        else:
+            update_fields = ['last_seen_at']
+            device.last_seen_at = now
+            if 'fan_output' in data and data['fan_output'] is not None:
+                device.latest_fan_status = 'ON' if bool(data['fan_output']) else 'OFF'
+                update_fields.append('latest_fan_status')
+            if 'mode' in data and data['mode']:
+                device.latest_mode = str(data['mode']).upper()
+                update_fields.append('latest_mode')
+            device.save(update_fields=update_fields)
+            Alert.objects.filter(
+                device=device, alert_type='DEVICE_OFFLINE', status__in=['OPEN', 'ACKNOWLEDGED']
+            ).update(status='RESOLVED', resolved_at=now)
 
     def sweep_pending_outbox(self, client):
         """Quét các tin nhắn chưa gửi trong Outbox để xuất bản lại tới MQTT Broker"""

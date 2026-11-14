@@ -175,10 +175,13 @@ class DeviceAPITestCase(TestCase):
         self.assertTrue('command_id' in data)
         self.assertTrue('correlation_id' in data)
 
-        # Kiểm tra Command đã được lưu trong DB
+        # Kiểm tra Command đã được lưu trong DB (kèm trường chuẩn V1.4 cho ESP32)
         cmd = Command.objects.get(id=data['command_id'])
         self.assertEqual(cmd.command_type, 'SET_FAN')
         self.assertEqual(cmd.payload['fan'], 'ON')
+        self.assertEqual(cmd.payload['schema_version'], 3)
+        self.assertEqual(cmd.payload['type'], 'SET_FAN')
+        self.assertEqual(cmd.payload['params']['on'], True)
         self.assertEqual(cmd.status, 'SENT')
 
         # Kiểm tra OutboxMessage
@@ -189,6 +192,45 @@ class DeviceAPITestCase(TestCase):
         audit = AuditLog.objects.filter(target_id=self.device.id, function_key='DEVICE_CONTROL').first()
         self.assertIsNotNone(audit)
         self.assertEqual(audit.outcome, 'ACCEPTED')
+
+    @patch('apps.devices.views.publish_command_to_broker')
+    def test_maintenance_device_blocks_control_and_config(self, mock_publish):
+        """Thiết bị ở trạng thái MAINTENANCE bị chặn gửi lệnh điều khiển và đẩy cấu hình"""
+        self.device.status = 'MAINTENANCE'
+        self.device.save(update_fields=['status'])
+
+        res_ctrl = self.client.post(
+            f'/api/devices/{self.device.id}/control/',
+            {'command': 'SET_FAN', 'fan': 'ON'},
+            format='json'
+        )
+        self.assertEqual(res_ctrl.status_code, status.HTTP_400_BAD_REQUEST)
+
+        res_cfg = self.client.post(
+            f'/api/devices/{self.device.id}/config/',
+            {'desired_config': {'max_temp': 34.0, 'max_hum': 70.0}},
+            format='json'
+        )
+        self.assertEqual(res_cfg.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch('apps.devices.views.publish_command_to_broker')
+    def test_post_device_config_generates_sha256_v3_payload(self, mock_publish):
+        """POST /api/devices/{id}/config/ sinh chuỗi config_json và mã băm SHA-256 khớp ESP32"""
+        import hashlib
+        mock_publish.return_value = True
+
+        res = self.client.post(
+            f'/api/devices/{self.device.id}/config/',
+            {'desired_config': {'max_temp': 34.0, 'max_hum': 72.0, 'fan_on_c': 30.0, 'fan_off_c': 28.0}},
+            format='json'
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        cmd = Command.objects.filter(device=self.device, command_type='APPLY_CONFIG').latest('created_at')
+        params = cmd.payload['params']
+        self.assertEqual(cmd.payload['schema_version'], 3)
+        self.assertEqual(cmd.payload['type'], 'APPLY_CONFIG')
+        expected_hash = hashlib.sha256(params['config_json'].encode('utf-8')).hexdigest()
+        self.assertEqual(params['content_hash'], expected_hash)
 
     def test_telemetry_history_and_stats_api(self):
         """Kiểm tra API lịch sử viễn trắc và thống kê min/max/avg"""
