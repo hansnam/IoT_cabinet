@@ -87,6 +87,30 @@
           "topic": "#",
           "priority": -1,
           "allow": true
+        },
+        {
+          "acltype": "publishClientSend",
+          "topic": "$CONTROL/dynamic-security/#",
+          "priority": -1,
+          "allow": true
+        },
+        {
+          "acltype": "publishClientReceive",
+          "topic": "$CONTROL/dynamic-security/#",
+          "priority": -1,
+          "allow": true
+        },
+        {
+          "acltype": "subscribePattern",
+          "topic": "$CONTROL/dynamic-security/#",
+          "priority": -1,
+          "allow": true
+        },
+        {
+          "acltype": "unsubscribePattern",
+          "topic": "$CONTROL/dynamic-security/#",
+          "priority": -1,
+          "allow": true
         }
       ]
     },

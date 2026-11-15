@@ -1,6 +1,7 @@
 from django.contrib import admin
 from apps.accounts.admin_site import cabinet_admin_site
 from apps.devices.models import Device, DeviceAccess, DeviceConfig
+from apps.devices.mqtt_client import sync_device_mqtt_access
 
 
 @admin.register(Device, site=cabinet_admin_site)
@@ -37,6 +38,12 @@ class DeviceAdmin(admin.ModelAdmin):
             'fields': ('created_at', 'updated_at')
         }),
     )
+
+    def save_model(self, request, obj, form, change):
+        status_changed = (not change) or ('status' in form.changed_data)
+        super().save_model(request, obj, form, change)
+        if status_changed:
+            sync_device_mqtt_access(obj.id, obj.status)
 
 
 @admin.register(DeviceAccess, site=cabinet_admin_site)

@@ -20,13 +20,15 @@ async function getCsrfToken() {
   return ''
 }
 
-// Hàm gửi request API kèm credentials và header CSRF tự động cho POST/PATCH/DELETE
+// Hàm gửi request API kèm credentials và header CSRF tự động cho mọi request thay đổi dữ liệu
 async function apiRequest(endpoint, method = 'GET', body = null) {
   const headers = { Accept: 'application/json' }
   const opts = { method, credentials: 'include', headers }
+  if (method.toUpperCase() !== 'GET' && method.toUpperCase() !== 'HEAD') {
+    headers['X-CSRFToken'] = await getCsrfToken()
+  }
   if (body) {
     headers['Content-Type'] = 'application/json'
-    headers['X-CSRFToken'] = await getCsrfToken()
     opts.body = JSON.stringify(body)
   }
   return fetch(`${API_BASE}${endpoint}`, opts)
@@ -797,8 +799,10 @@ function App() {
                 <option value="all">Tất cả trạng thái</option>
                 <option value="PENDING">PENDING (Chờ gửi)</option>
                 <option value="SENT">SENT (Đã phát tới Broker)</option>
-                <option value="ACKED">ACKED (Thiết bị đã xác nhận)</option>
-                <option value="FAILED">FAILED (Thất bại / Hết hạn)</option>
+                <option value="APPLIED">APPLIED (Thiết bị đã thực thi)</option>
+                <option value="APPLIED_LATE">APPLIED_LATE (Thực thi muộn)</option>
+                <option value="TIMEOUT">TIMEOUT (Hết hạn chờ ACK)</option>
+                <option value="FAILED">FAILED (Thất bại)</option>
               </select>
             </div>
 

@@ -214,8 +214,53 @@ class DeviceAPITestCase(TestCase):
         self.assertEqual(res_cfg.status_code, status.HTTP_400_BAD_REQUEST)
 
     @patch('apps.devices.views.publish_command_to_broker')
+    def test_post_device_control_mode_infers_set_mode_and_validates_duration(self, mock_publish):
+        """POST /control/ chỉ gửi {'mode': 'MANUAL', 'duration_s': 120} tự suy luận SET_MODE và kiểm tra biên 10..300s"""
+        mock_publish.return_value = True
+
+        res = self.client.post(
+            f'/api/devices/{self.device.id}/control/',
+            {'mode': 'MANUAL', 'duration_s': 120},
+            format='json'
+        )
+        self.assertEqual(res.status_code, status.HTTP_202_ACCEPTED)
+        cmd = Command.objects.get(id=res.json()['command_id'])
+        self.assertEqual(cmd.command_type, 'SET_MODE')
+        self.assertEqual(cmd.payload['type'], 'SET_MODE')
+        self.assertEqual(cmd.payload['params']['mode'], 'MANUAL')
+        self.assertEqual(cmd.payload['params']['duration_s'], 120)
+
+        # Ngoài biên 10..300s bị từ chối 400
+        bad_res = self.client.post(
+            f'/api/devices/{self.device.id}/control/',
+            {'mode': 'MANUAL', 'duration_s': 500},
+            format='json'
+        )
+        self.assertEqual(bad_res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch('apps.devices.views.publish_command_to_broker')
+    def test_registered_device_blocks_control_and_config(self, mock_publish):
+        """Thiết bị chưa kích hoạt (REGISTERED) bị chặn gửi lệnh và cấu hình"""
+        self.device.status = 'REGISTERED'
+        self.device.save(update_fields=['status'])
+
+        res_ctrl = self.client.post(
+            f'/api/devices/{self.device.id}/control/',
+            {'fan': 'ON'},
+            format='json'
+        )
+        self.assertEqual(res_ctrl.status_code, status.HTTP_400_BAD_REQUEST)
+
+        res_cfg = self.client.post(
+            f'/api/devices/{self.device.id}/config/',
+            {'desired_config': {'temp_alert_c': 34.0}},
+            format='json'
+        )
+        self.assertEqual(res_cfg.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch('apps.devices.views.publish_command_to_broker')
     def test_post_device_config_generates_sha256_v3_payload(self, mock_publish):
-        """POST /api/devices/{id}/config/ sinh chuỗi config_json và mã băm SHA-256 khớp ESP32"""
+        """POST /api/devices/{id}/config/ tạo Outbox, ghi SENT khi publish OK và sinh SHA-256 khớp ESP32"""
         import hashlib
         mock_publish.return_value = True
 
@@ -226,11 +271,55 @@ class DeviceAPITestCase(TestCase):
         )
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         cmd = Command.objects.filter(device=self.device, command_type='APPLY_CONFIG').latest('created_at')
+        self.assertEqual(cmd.status, 'SENT')
+        self.assertIsNotNone(cmd.sent_at)
+        outbox = OutboxMessage.objects.get(command=cmd)
+        self.assertEqual(outbox.status, 'PUBLISHED')
         params = cmd.payload['params']
         self.assertEqual(cmd.payload['schema_version'], 3)
         self.assertEqual(cmd.payload['type'], 'APPLY_CONFIG')
         expected_hash = hashlib.sha256(params['config_json'].encode('utf-8')).hexdigest()
         self.assertEqual(params['content_hash'], expected_hash)
+
+    @patch('apps.devices.views.sync_device_mqtt_access')
+    def test_patch_device_status_triggers_dynsec_and_blocks_viewer(self, mock_dynsec):
+        """PATCH /api/devices/{id}/ đổi status -> đồng bộ Dynamic Security và chặn VIEWER"""
+        mock_dynsec.return_value = True
+
+        # LOCKED -> disableClient
+        res_lock = self.client.patch(
+            f'/api/devices/{self.device.id}/',
+            {'status': 'LOCKED'},
+            format='json'
+        )
+        self.assertEqual(res_lock.status_code, status.HTTP_200_OK)
+        mock_dynsec.assert_called_with(self.device.id, 'LOCKED')
+
+        # ACTIVE -> enableClient
+        res_unlock = self.client.patch(
+            f'/api/devices/{self.device.id}/',
+            {'status': 'ACTIVE'},
+            format='json'
+        )
+        self.assertEqual(res_unlock.status_code, status.HTTP_200_OK)
+        mock_dynsec.assert_called_with(self.device.id, 'ACTIVE')
+
+        # VIEWER không được phép PATCH status
+        viewer = User.objects.create_user(
+            username='viewer_patch_test',
+            full_name='Viewer Patch Test',
+            password='TestPassword123!'
+        )
+        assign_role(viewer, ROLE_VIEWER)
+        DeviceAccess.objects.create(user=viewer, device=self.device, role='VIEW')
+        viewer_client = APIClient()
+        viewer_client.force_authenticate(user=viewer)
+        res_denied = viewer_client.patch(
+            f'/api/devices/{self.device.id}/',
+            {'status': 'LOCKED'},
+            format='json'
+        )
+        self.assertEqual(res_denied.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_telemetry_history_and_stats_api(self):
         """Kiểm tra API lịch sử viễn trắc và thống kê min/max/avg"""
@@ -485,6 +574,14 @@ class MQTTWorkerProcessingTestCase(TestCase):
         self.worker.process_telemetry(self.device.id, tv1_fault_telemetry)
         self.device.refresh_from_db()
         self.assertEqual(self.device.latest_fan_status, 'ON')
+        self.assertIsNone(self.device.latest_temperature)
+        self.assertIsNone(self.device.latest_humidity)
+        fault_tele = Telemetry.objects.filter(device=self.device, seq=15).first()
+        self.assertIsNotNone(fault_tele)
+        self.assertIsNone(fault_tele.temperature)
+        self.assertIsNone(fault_tele.humidity)
+        self.assertEqual(fault_tele.uptime, 75)
+        self.assertEqual(fault_tele.measured_at.year, 2026)
         alert = Alert.objects.filter(device=self.device, alert_type='SENSOR_FAULT', status='OPEN').first()
         self.assertIsNotNone(alert)
         self.assertEqual(alert.severity, 'CRITICAL')
@@ -520,9 +617,9 @@ class MQTTWorkerProcessingTestCase(TestCase):
         self.assertIsNotNone(cmd.acked_at)
 
     def test_check_offline_devices_creates_alert(self):
-        """Thiết bị không gửi viễn trắc quá 30 giây kích hoạt DEVICE_OFFLINE"""
+        """Thiết bị không gửi viễn trắc quá 45 giây kích hoạt DEVICE_OFFLINE"""
         from datetime import timedelta
-        self.device.last_seen_at = timezone.now() - timedelta(seconds=45)
+        self.device.last_seen_at = timezone.now() - timedelta(seconds=46)
         self.device.save(update_fields=['last_seen_at'])
 
         self.worker.check_offline_devices()
@@ -530,3 +627,135 @@ class MQTTWorkerProcessingTestCase(TestCase):
         offline_alert = Alert.objects.filter(device=self.device, alert_type='DEVICE_OFFLINE', status='OPEN').first()
         self.assertIsNotNone(offline_alert)
         self.assertEqual(offline_alert.severity, 'WARNING')
+
+    def test_process_ack_apply_config_updates_applied_config(self):
+        """Nhận ACK thành công cho APPLY_CONFIG cập nhật device.applied_config và DeviceConfig.applied=True"""
+        new_cfg = {
+            'temp_alert_c': 32.0,
+            'humidity_alert_pct': 70.0,
+            'temp_clear_margin_c': 2.0,
+            'humidity_clear_margin_pct': 5.0,
+        }
+        DeviceConfig.objects.create(device=self.device, version=2, config_data=new_cfg, applied=False)
+        cmd_id = str(uuid.uuid4())
+        Command.objects.create(
+            device=self.device,
+            command_type='APPLY_CONFIG',
+            payload={
+                'schema_version': 3,
+                'command_id': cmd_id,
+                'type': 'APPLY_CONFIG',
+                'config_version': 2,
+                'config': new_cfg,
+            },
+            status='SENT',
+            correlation_id=cmd_id,
+        )
+
+        self.worker.process_ack(self.device.id, {'command_id': cmd_id, 'status': 'APPLIED'})
+        self.device.refresh_from_db()
+        self.assertEqual(self.device.applied_config, new_cfg)
+        cfg_row = DeviceConfig.objects.get(device=self.device, version=2)
+        self.assertTrue(cfg_row.applied)
+        self.assertIsNotNone(cfg_row.applied_at)
+
+        # Kiểm tra evaluate_alerts dùng khóa V1.4 (temp_alert_c=32.0, temp_clear_margin_c=2.0)
+        self.worker.process_telemetry(self.device.id, {'temperature_c': 33.0, 'humidity_pct': 50.0, 'seq': 201})
+        self.assertTrue(Alert.objects.filter(device=self.device, alert_type='HIGH_TEMP', status='OPEN').exists())
+
+        # Hạ còn 31.0 (> 32 - 2 = 30): vẫn giữ OPEN
+        self.worker.process_telemetry(self.device.id, {'temperature_c': 31.0, 'humidity_pct': 50.0, 'seq': 202})
+        self.assertTrue(Alert.objects.filter(device=self.device, alert_type='HIGH_TEMP', status='OPEN').exists())
+
+        # Hạ về 30.0 (<= 32 - 2): tự động RESOLVED
+        self.worker.process_telemetry(self.device.id, {'temperature_c': 30.0, 'humidity_pct': 50.0, 'seq': 203})
+        self.assertFalse(Alert.objects.filter(device=self.device, alert_type='HIGH_TEMP', status='OPEN').exists())
+
+    def test_sweep_pending_outbox_checks_rc_and_retries_at_3s_6s(self):
+        """Worker kiểm tra rc khi publish và retry sau 3s / 6s cho lệnh SENT chưa ACK"""
+        from datetime import timedelta
+        from unittest.mock import MagicMock
+
+        corr_id = str(uuid.uuid4())
+        cmd = Command.objects.create(
+            device=self.device,
+            command_type='SET_FAN',
+            payload={'command_id': corr_id, 'on': True},
+            status='PENDING',
+            correlation_id=corr_id,
+        )
+        outbox = OutboxMessage.objects.create(
+            command=cmd,
+            topic=f"cabinet/v3/devices/{self.device.id}/commands",
+            payload=cmd.payload,
+            status='PENDING',
+        )
+
+        # 1. Broker trả về rc=4 (disconnected) -> giữ nguyên PENDING
+        bad_client = MagicMock()
+        bad_client.publish.return_value = MagicMock(rc=4)
+        self.worker.sweep_pending_outbox(bad_client)
+        outbox.refresh_from_db()
+        cmd.refresh_from_db()
+        self.assertEqual(outbox.status, 'PENDING')
+        self.assertEqual(cmd.status, 'PENDING')
+
+        # Đặt lại retry_count=0 để mô phỏng gửi lần đầu thành công -> SENT, retry_count=0
+        outbox.retry_count = 0
+        outbox.save(update_fields=['retry_count'])
+        ok_client = MagicMock()
+        ok_client.publish.return_value = MagicMock(rc=0)
+        self.worker.sweep_pending_outbox(ok_client)
+        outbox.refresh_from_db()
+        cmd.refresh_from_db()
+        self.assertEqual(outbox.status, 'PUBLISHED')
+        self.assertEqual(cmd.status, 'SENT')
+        self.assertEqual(outbox.retry_count, 0)
+
+        # 2. Sau 4 giây chưa ACK -> retry lần 1 (retry_count = 1)
+        cmd.sent_at = timezone.now() - timedelta(seconds=4)
+        cmd.save(update_fields=['sent_at'])
+        ok_client.publish.reset_mock()
+        self.worker.sweep_pending_outbox(ok_client)
+        outbox.refresh_from_db()
+        self.assertEqual(outbox.retry_count, 1)
+        self.assertTrue(ok_client.publish.called)
+
+        # 3. Sau 7 giây chưa ACK -> retry lần 2 (retry_count = 2)
+        cmd.sent_at = timezone.now() - timedelta(seconds=7)
+        cmd.save(update_fields=['sent_at'])
+        ok_client.publish.reset_mock()
+        self.worker.sweep_pending_outbox(ok_client)
+        outbox.refresh_from_db()
+        self.assertEqual(outbox.retry_count, 2)
+        self.assertTrue(ok_client.publish.called)
+
+    def test_build_dynsec_payload_and_sync_publishes_to_control_topic(self):
+        """Kiểm tra helper tạo payload Dynamic Security và publish tới $CONTROL/dynamic-security/v1"""
+        from apps.devices.mqtt_client import (
+            DYNSEC_CONTROL_TOPIC,
+            build_dynsec_client_status_payload,
+            sync_device_mqtt_access,
+        )
+
+        self.assertEqual(
+            build_dynsec_client_status_payload('cabinet-001', 'LOCKED'),
+            {'commands': [{'command': 'disableClient', 'username': 'cabinet-001'}]},
+        )
+        self.assertEqual(
+            build_dynsec_client_status_payload('cabinet-001', 'DECOMMISSIONED'),
+            {'commands': [{'command': 'disableClient', 'username': 'cabinet-001'}]},
+        )
+        self.assertEqual(
+            build_dynsec_client_status_payload('cabinet-001', 'ACTIVE'),
+            {'commands': [{'command': 'enableClient', 'username': 'cabinet-001'}]},
+        )
+        self.assertIsNone(build_dynsec_client_status_payload('cabinet-001', 'MAINTENANCE'))
+
+        with patch('apps.devices.mqtt_client._create_connected_mqtt_client') as mock_conn:
+            fake_client = mock_conn.return_value
+            ok = sync_device_mqtt_access('cabinet-001', 'LOCKED')
+            self.assertTrue(ok)
+            args, kwargs = fake_client.publish.call_args
+            self.assertEqual(args[0], DYNSEC_CONTROL_TOPIC)
+            self.assertEqual(json.loads(args[1]), {'commands': [{'command': 'disableClient', 'username': 'cabinet-001'}]})

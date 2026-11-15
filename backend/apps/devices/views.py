@@ -11,7 +11,7 @@ from apps.audit.models import AuditLog
 from apps.audit.services import AuditService
 from apps.commands.models import Command, OutboxMessage
 from apps.devices.models import Device, DeviceAccess, DeviceConfig
-from apps.devices.mqtt_client import publish_command_to_broker
+from apps.devices.mqtt_client import publish_command_to_broker, sync_device_mqtt_access
 from apps.devices.policies import require_device_permission, visible_devices
 from apps.devices.serializers import (
     DeviceConfigSerializer,
@@ -49,6 +49,30 @@ def build_esp32_config_json_and_hash(desired_config: dict) -> tuple[str, str]:
     return config_json, content_hash
 
 
+def _ensure_device_active(device: Device, action_label: str):
+    """Chặn gửi lệnh/cấu hình khi thiết bị không ở trạng thái ACTIVE (REGISTERED, MAINTENANCE, LOCKED, DECOMMISSIONED)."""
+    if device.status != 'ACTIVE':
+        return Response(
+            {"error": {"code": "DEVICE_LOCKED", "message": f"Tủ mạng đang ở trạng thái '{device.status}', không thể {action_label}."}},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    return None
+
+
+def _dispatch_command_to_broker(cmd: Command, outbox: OutboxMessage, device_id: str, payload: dict) -> bool:
+    """Xuất bản ngay lệnh tới MQTT Broker và đồng bộ trạng thái Command/Outbox khi gửi thành công."""
+    published = publish_command_to_broker(device_id, payload)
+    if published:
+        now = timezone.now()
+        cmd.status = 'SENT'
+        cmd.sent_at = now
+        cmd.save(update_fields=['status', 'sent_at'])
+        outbox.status = 'PUBLISHED'
+        outbox.published_at = now
+        outbox.save(update_fields=['status', 'published_at'])
+    return published
+
+
 class DeviceViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
@@ -78,6 +102,29 @@ class DeviceViewSet(
         require_device_permission(request.user, device, action='VIEW')
         serializer = self.get_serializer(device)
         return Response(serializer.data)
+
+    def perform_update(self, serializer):
+        device = serializer.instance
+        require_device_permission(self.request.user, device, action='OPERATE')
+        old_status = device.status
+        updated = serializer.save()
+
+        if updated.status != old_status:
+            sync_device_mqtt_access(updated.id, updated.status)
+            request_id = getattr(self.request, 'request_id', None) or str(uuid.uuid4())
+            AuditService.record_event(
+                function_key="DEVICE_LIFECYCLE",
+                action="DEVICE_STATUS_CHANGED",
+                outcome="SUCCESS",
+                summary=f"Đổi trạng thái thiết bị {updated.id}: {old_status} -> {updated.status}",
+                request_id=request_id,
+                actor_user=self.request.user,
+                actor_type=AuditLog.ActorType.USER if self.request.user else AuditLog.ActorType.SYSTEM,
+                target_type="DEVICE",
+                target_id=updated.id,
+                device_id=updated.id,
+                metadata={'device_id': updated.id},
+            )
 
     @action(detail=True, methods=['get'])
     def latest(self, request, id=None):
@@ -110,11 +157,9 @@ class DeviceViewSet(
         device = self.get_object()
 
         # Kiểm tra trạng thái vòng đời (chỉ thiết bị ACTIVE mới được nhận lệnh điều khiển)
-        if device.status in ('LOCKED', 'DECOMMISSIONED', 'MAINTENANCE'):
-            return Response(
-                {"error": {"code": "DEVICE_LOCKED", "message": f"Tủ mạng đang ở trạng thái '{device.status}', không thể điều khiển."}},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        blocked_res = _ensure_device_active(device, "điều khiển")
+        if blocked_res is not None:
+            return blocked_res
 
         # Kiểm tra quyền OPERATE
         require_device_permission(request.user, device, action='OPERATE')
@@ -124,7 +169,7 @@ class DeviceViewSet(
         serializer.is_valid(raise_exception=True)
         validated_data = serializer.validated_data
 
-        command_type = validated_data.get('command', 'SET_FAN')
+        command_type = validated_data['command']
         correlation_id = str(uuid.uuid4())
         cmd_seq = Command.objects.filter(device=device).count() + 1
 
@@ -148,7 +193,7 @@ class DeviceViewSet(
         if 'mode' in validated_data:
             payload['mode'] = validated_data['mode']
             params['mode'] = validated_data['mode']
-            params['duration_s'] = int(request.data.get('duration_s', 60))
+            params['duration_s'] = validated_data.get('duration_s', 60)
         payload['params'] = params
 
         request_id = getattr(request, 'request_id', str(uuid.uuid4()))
@@ -190,14 +235,7 @@ class DeviceViewSet(
             )
 
         # Xuất bản ngay tới MQTT Broker (nếu có kết nối)
-        published = publish_command_to_broker(device.id, payload)
-        if published:
-            cmd.status = 'SENT'
-            cmd.sent_at = timezone.now()
-            cmd.save(update_fields=['status', 'sent_at'])
-            outbox.status = 'PUBLISHED'
-            outbox.published_at = timezone.now()
-            outbox.save(update_fields=['status', 'published_at'])
+        published = _dispatch_command_to_broker(cmd, outbox, device.id, payload)
 
         return Response(
             {
@@ -223,11 +261,9 @@ class DeviceViewSet(
                 'applied_config': device.applied_config,
             })
 
-        if device.status in ('LOCKED', 'DECOMMISSIONED', 'MAINTENANCE'):
-            return Response(
-                {"error": {"code": "DEVICE_LOCKED", "message": f"Tủ mạng đang ở trạng thái '{device.status}', không thể cập nhật cấu hình."}},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        blocked_res = _ensure_device_active(device, "cập nhật cấu hình")
+        if blocked_res is not None:
+            return blocked_res
 
         require_device_permission(request.user, device, action='OPERATE')
         user = request.user
@@ -269,13 +305,21 @@ class DeviceViewSet(
                 'timestamp': timezone.now().isoformat(),
             }
 
-            Command.objects.create(
+            cmd = Command.objects.create(
                 device=device,
                 command_type='APPLY_CONFIG',
                 payload=payload,
                 status='PENDING',
                 correlation_id=correlation_id,
                 actor=user,
+            )
+
+            outbox = OutboxMessage.objects.create(
+                command=cmd,
+                topic=f"cabinet/v3/devices/{device.id}/commands",
+                payload=payload,
+                qos=1,
+                status='PENDING',
             )
 
             request_id = getattr(request, 'request_id', None) or str(uuid.uuid4())
@@ -290,15 +334,19 @@ class DeviceViewSet(
                 target_type="DEVICE",
                 target_id=device.id,
                 device_id=device.id,
-                metadata={'device_id': device.id}
+                correlation_id=correlation_id,
+                metadata={'device_id': device.id, 'command_id': str(cmd.id), 'command_type': 'APPLY_CONFIG'}
             )
 
-        publish_command_to_broker(device.id, payload)
+        published = _dispatch_command_to_broker(cmd, outbox, device.id, payload)
 
         return Response({
             'status': 'SUCCESS',
             'device_id': device.id,
             'version': latest_version,
+            'command_id': str(cmd.id),
+            'correlation_id': correlation_id,
+            'published_to_broker': published,
             'desired_config': new_desired,
             'message': f"Đã cập nhật desired_config v{latest_version} và phát lệnh đồng bộ xuống tủ mạng."
         })

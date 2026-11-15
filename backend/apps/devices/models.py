@@ -3,6 +3,9 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
+# Ngưỡng mất tín hiệu thống nhất toàn hệ thống (LWT hoặc >45s không có status/telemetry)
+DEVICE_OFFLINE_THRESHOLD_SECONDS = 45
+
 
 class Device(models.Model):
     """
@@ -17,6 +20,7 @@ class Device(models.Model):
     STATUS_CHOICES = (
         ('REGISTERED', 'Đã đăng ký (Chờ kích hoạt)'),
         ('ACTIVE', 'Đang hoạt động'),
+        ('MAINTENANCE', 'Đang bảo trì'),
         ('LOCKED', 'Đã tạm khóa'),
         ('DECOMMISSIONED', 'Đã loại biên'),
     )
@@ -39,7 +43,7 @@ class Device(models.Model):
         default='ACTIVE',
         verbose_name="Trạng thái vòng đời"
     )
-    hardware_version = models.CharField(max_length=32, default='v1.0', verbose_name="Phiên bản phần cứng")
+    hardware_version = models.CharField(max_length=64, default='v1.0', verbose_name="Phiên bản phần cứng")
     firmware_version = models.CharField(max_length=32, default='v1.0.0', verbose_name="Phiên bản firmware")
     ip_address = models.GenericIPAddressField(null=True, blank=True, verbose_name="Địa chỉ IP")
     mac_address = models.CharField(max_length=32, blank=True, default='', verbose_name="Địa chỉ MAC")
@@ -90,7 +94,7 @@ class Device(models.Model):
     def __str__(self):
         return f"{self.id} - {self.name} ({self.status})"
 
-    def is_online(self, threshold_seconds=60) -> bool:
+    def is_online(self, threshold_seconds=DEVICE_OFFLINE_THRESHOLD_SECONDS) -> bool:
         """Kiểm tra thiết bị có đang online dựa trên last_seen_at"""
         if not self.last_seen_at:
             return False
