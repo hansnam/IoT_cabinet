@@ -6,6 +6,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      '/admin': { target: 'http://127.0.0.1:8000', changeOrigin: true },
+      '/static': { target: 'http://127.0.0.1:8000', changeOrigin: true },
       '/api': {
         target: 'http://127.0.0.1:8000', // Đổi 5000 thành 8000
         changeOrigin: true,

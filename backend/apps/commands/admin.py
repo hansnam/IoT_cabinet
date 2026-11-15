@@ -5,6 +5,9 @@ from apps.commands.models import Command, OutboxMessage
 
 @admin.register(Command, site=cabinet_admin_site)
 class CommandAdmin(admin.ModelAdmin):
+    def has_add_permission(self, request):
+        return False  # Lệnh phải được tạo qua API hoặc command có kiểm quyền và outbox.
+
     list_display = (
         'id', 'device', 'command_type', 'status',
         'correlation_id', 'actor', 'created_at', 'acked_at'

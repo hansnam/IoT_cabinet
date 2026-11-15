@@ -1,5 +1,7 @@
 import json
 import uuid
+from datetime import timedelta
+from apps.accounts.models import AuthSession
 from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
@@ -97,7 +99,12 @@ class DeviceAPITestCase(TestCase):
             password='TestPassword123!'
         )
         assign_role(self.user, ROLE_OPERATOR)
-        self.client.force_authenticate(user=self.user)
+        self.client.force_login(self.user)
+        session = self.client.session
+        registry = AuthSession.objects.create(user=self.user, session_key=session.session_key,
+            expires_at=timezone.now() + timedelta(minutes=15))
+        session['auth_session_id'] = str(registry.pk)
+        session.save()
 
         self.device = Device.objects.create(
             id='CAB-01',
@@ -224,7 +231,7 @@ class DeviceAPITestCase(TestCase):
             {'desired_config': {'max_temp': 34.0, 'max_hum': 72.0, 'fan_on_c': 30.0, 'fan_off_c': 28.0}},
             format='json'
         )
-        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.status_code, status.HTTP_202_ACCEPTED)
         cmd = Command.objects.filter(device=self.device, command_type='APPLY_CONFIG').latest('created_at')
         params = cmd.payload['params']
         self.assertEqual(cmd.payload['schema_version'], 3)

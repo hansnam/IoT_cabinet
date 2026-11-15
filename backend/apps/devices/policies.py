@@ -7,22 +7,25 @@ Thực thi kiểm soát phạm vi thiết bị (Scope / Multi-tenancy / IDOR Pre
 from django.core.exceptions import PermissionDenied
 from django.db.models import QuerySet
 from django.utils import timezone
-from apps.accounts.policies.roles import has_role, ROLE_ADMIN
+from apps.accounts.policies.roles import get_user_role, ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER
 from apps.devices.models import Device, DeviceAccess
 
 
 def visible_devices(user) -> QuerySet[Device]:
     """
     Trả về QuerySet các thiết bị mà user hiện tại được phép nhìn thấy:
-    - ADMIN hoặc is_superuser: Nhìn thấy toàn bộ thiết bị.
+    - ADMIN: Nhìn thấy toàn bộ thiết bị.
     - OPERATOR / VIEWER: Chỉ nhìn thấy các thiết bị đã được cấp DeviceAccess còn hiệu lực.
-    - Anonymous / Unauthenticated: Trả về rỗng (hoặc chỉ demo dev nếu cấu hình).
+    - Anonymous / Unauthenticated hoặc vai trò không hợp lệ: Trả về rỗng.
     """
-    if not user or not user.is_authenticated:
+    if not user or not user.is_authenticated or not user.is_active or user.status != 'ACTIVE':
         return Device.objects.none()
 
-    if user.is_superuser or has_role(user, ROLE_ADMIN):
+    role = get_user_role(user)
+    if role == ROLE_ADMIN:
         return Device.objects.all()
+    if role not in (ROLE_OPERATOR, ROLE_VIEWER):
+        return Device.objects.none()
 
     now = timezone.now()
     # Lọc các thiết bị có DeviceAccess còn hiệu lực
@@ -30,7 +33,7 @@ def visible_devices(user) -> QuerySet[Device]:
         user=user
     ).exclude(
         expires_at__isnull=False,
-        expires_at__lt=now
+        expires_at__lte=now
     ).values_list('device_id', flat=True)
 
     return Device.objects.filter(id__in=allowed_device_ids)
@@ -48,11 +51,16 @@ def require_device_permission(user, device: Device, action: str = 'VIEW') -> boo
     Ngoại lệ:
         PermissionDenied: Nếu không đủ quyền hạn.
     """
-    if not user or not user.is_authenticated:
+    if action not in ('VIEW', 'OPERATE'):
+        raise PermissionDenied('Hành động không được hỗ trợ.')
+    if not user or not user.is_authenticated or not user.is_active or user.status != 'ACTIVE':
         raise PermissionDenied("Yêu cầu đăng nhập để truy cập thiết bị.")
 
-    if user.is_superuser or has_role(user, ROLE_ADMIN):
+    role = get_user_role(user)
+    if role == ROLE_ADMIN:
         return True
+    if role not in (ROLE_OPERATOR, ROLE_VIEWER):
+        raise PermissionDenied('Tài khoản chưa có vai trò hợp lệ.')
 
     now = timezone.now()
     access = DeviceAccess.objects.filter(
@@ -60,7 +68,7 @@ def require_device_permission(user, device: Device, action: str = 'VIEW') -> boo
         device=device
     ).exclude(
         expires_at__isnull=False,
-        expires_at__lt=now
+        expires_at__lte=now
     ).first()
 
     if not access:
@@ -70,7 +78,8 @@ def require_device_permission(user, device: Device, action: str = 'VIEW') -> boo
         return True
 
     if action == 'OPERATE':
-        if access.role == 'OPERATE':
+        # VIEWER không được điều khiển, kể cả khi grant vô tình ghi OPERATE.
+        if role == ROLE_OPERATOR and access.role == 'OPERATE':
             return True
         raise PermissionDenied(f"Tài khoản của bạn chỉ có quyền XEM (VIEW), không được phép ĐIỀU KHIỂN tủ '{device.id}'.")
 

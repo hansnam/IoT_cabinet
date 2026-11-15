@@ -19,6 +19,19 @@ ACTION_SESSION_REVOKE: Final[str] = "SESSION_REVOKE"
 # 2. Các Business Action Codes cho kiểm toán nhật ký (audit)
 ACTION_AUDIT_VIEW: Final[str] = "AUDIT_VIEW"
 
+# Dùng permission của các model IoT đã có; không cần thêm bảng quyền riêng.
+DEVICE_ACTIONS = {
+    'DEVICE_VIEW': 'devices.view_device',
+    'DEVICE_OPERATE': 'commands.add_command',
+    'DEVICE_CREATE': 'devices.add_device',
+    'DEVICE_MANAGE': 'devices.change_device',
+    'ACCESS_VIEW': 'devices.view_deviceaccess',
+    'ACCESS_CREATE': 'devices.add_deviceaccess',
+    'ACCESS_CHANGE': 'devices.change_deviceaccess',
+    'ACCESS_REVOKE': 'devices.delete_deviceaccess',
+    'CONFIG_VIEW': 'devices.view_deviceconfig',
+}
+
 # Tập hợp toàn bộ các action đã được đăng ký trong hệ thống
 ALL_ACTIONS: Final[tuple[str, ...]] = (
     ACTION_USER_CREATE,
@@ -28,7 +41,7 @@ ALL_ACTIONS: Final[tuple[str, ...]] = (
     ACTION_SESSION_VIEW,
     ACTION_SESSION_REVOKE,
     ACTION_AUDIT_VIEW,
-)
+) + tuple(DEVICE_ACTIONS)
 
 # 3. Ánh xạ từ Business Action Code sang Django Permission codename (app_label.codename)
 # Toàn bộ codename này đều do Django tự động sinh ra cho các model User, AuthSession, AuditLog
@@ -40,6 +53,7 @@ ACTION_PERMISSIONS: Final[dict[str, str]] = {
     ACTION_SESSION_VIEW: "accounts.view_authsession",
     ACTION_SESSION_REVOKE: "accounts.change_authsession",
     ACTION_AUDIT_VIEW: "audit.view_auditlog",
+    **DEVICE_ACTIONS,
 }
 
 def get_permission_for_action(action: str) -> str:

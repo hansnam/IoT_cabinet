@@ -15,7 +15,9 @@ from apps.alerts.models import Alert
 from apps.audit.models import AuditLog
 from apps.audit.services import AuditService
 from apps.commands.models import Command as CommandModel, OutboxMessage
-from apps.devices.models import Device
+from apps.devices.models import Device, DeviceConfig
+from apps.devices.mqtt_client import configure_mqtt_tls
+from apps.commands.dispatch import dispatch_outbox
 from apps.telemetry.models import Telemetry
 
 logger = logging.getLogger('mqtt_worker')
@@ -44,6 +46,7 @@ class Command(BaseCommand):
         mqtt_pass = getattr(settings, 'MQTT_PASSWORD', '')
         if mqtt_user:
             client.username_pw_set(mqtt_user, mqtt_pass)
+        configure_mqtt_tls(client)
 
         def on_connect(client, userdata, flags, rc):
             if rc == 0:
@@ -318,7 +321,8 @@ class Command(BaseCommand):
             logger.warning("[MQTT ACK] Gói tin ACK thiếu correlation_id: %s", data)
             return
 
-        cmd = CommandModel.objects.filter(correlation_id=correlation_id).first()
+        # ACK phải thuộc đúng thiết bị trên topic, không chỉ khớp correlation_id.
+        cmd = CommandModel.objects.filter(correlation_id=correlation_id, device_id=device_id).first()
         if not cmd:
             logger.warning("[MQTT ACK] Không tìm thấy lệnh tương ứng với correlation_id: %s", correlation_id)
             return
@@ -327,6 +331,9 @@ class Command(BaseCommand):
         is_success = str(data.get('status', 'SUCCESS')).upper() in ('SUCCESS', 'OK', 'APPLIED')
 
         with transaction.atomic():
+            cmd = CommandModel.objects.select_for_update().get(pk=cmd.pk)
+            if cmd.status in ('CANCELLED', 'APPLIED', 'APPLIED_LATE', 'ACKED', 'FAILED'):
+                return
             if is_success:
                 # Nếu lệnh đã bị đánh dấu TIMEOUT trước đó, chuyển sang APPLIED_LATE
                 if cmd.status == 'TIMEOUT':
@@ -345,6 +352,17 @@ class Command(BaseCommand):
 
             cmd.acked_at = now
             cmd.save(update_fields=['status', 'acked_at', 'error_message'])
+
+            if is_success and cmd.command_type == 'APPLY_CONFIG':
+                config = DeviceConfig.objects.filter(
+                    device_id=device_id, version=cmd.payload.get('config_version'),
+                ).first()
+                if config:
+                    config.applied, config.applied_at = True, now
+                    config.save(update_fields=['applied', 'applied_at'])
+                    # ACK cũ đến muộn không được làm UI quay về phiên bản thấp hơn.
+                    latest_applied = DeviceConfig.objects.filter(device_id=device_id, applied=True).order_by('-version').first()
+                    Device.objects.filter(pk=device_id).update(applied_config=latest_applied.config_data)
 
             # Đồng bộ trạng thái quạt và chế độ thực tế từ trường result của gói ACK
             result_data = data.get('result')
@@ -373,7 +391,7 @@ class Command(BaseCommand):
                 outcome="SUCCESS" if is_success else "FAILED",
                 summary=f"Nhận phản hồi ACK từ tủ {device_id} cho lệnh #{cmd.id} (Trạng thái: {cmd.status})",
                 request_id=str(uuid.uuid4()),
-                actor_user=cmd.actor,
+                actor_user=None,  # ACK do worker xử lý, người gửi gốc nằm trên Command.actor.
                 actor_type=AuditLog.ActorType.SYSTEM,
                 target_type="DEVICE",
                 target_id=device_id,
@@ -426,25 +444,18 @@ class Command(BaseCommand):
             ).update(status='RESOLVED', resolved_at=now)
 
     def sweep_pending_outbox(self, client):
-        """Quét các tin nhắn chưa gửi trong Outbox để xuất bản lại tới MQTT Broker"""
-        pending_messages = OutboxMessage.objects.filter(status='PENDING').select_related('command')[:10]
-        for msg in pending_messages:
-            try:
-                topic = msg.topic
-                payload_str = json.dumps(msg.payload, ensure_ascii=False)
-                info = client.publish(topic, payload_str, qos=msg.qos)
-                msg.status = 'PUBLISHED'
-                msg.published_at = timezone.now()
-                msg.retry_count += 1
-                msg.save(update_fields=['status', 'published_at', 'retry_count'])
+        """Kiểm lại quyền ngay trước publish; dùng chung dispatcher với API."""
+        def publish(device_id, payload):
+            info = client.publish(f'cabinet/v3/devices/{device_id}/commands', json.dumps(payload), qos=1)
+            info.wait_for_publish(timeout=3)
+            return info.rc == mqtt.MQTT_ERR_SUCCESS and info.is_published()
 
-                msg.command.status = 'SENT'
-                msg.command.sent_at = timezone.now()
-                msg.command.save(update_fields=['status', 'sent_at'])
+        pending_ids = list(OutboxMessage.objects.filter(status='PENDING').values_list('pk', flat=True)[:10])
+        for outbox_id in pending_ids:
+            try:
+                dispatch_outbox(outbox_id, publish)
             except Exception as e:
-                msg.retry_count += 1
-                msg.last_error = str(e)
-                msg.save(update_fields=['retry_count', 'last_error'])
+                logger.warning('Chưa gửi được outbox %s (%s)', outbox_id, type(e).__name__)
 
     def check_command_timeouts(self):
         """Đánh dấu TIMEOUT cho các lệnh đã gửi quá 15 giây mà không nhận được ACK từ phần cứng"""

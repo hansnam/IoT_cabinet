@@ -41,6 +41,7 @@ htmlcov/
 
 # Frontend (Node / Vite / React)
 node_modules/
+.npm-cache/
 dist/
 dist-ssr/
 *.local
@@ -83,3 +84,5 @@ docs/RA_SOAT_VA_CAP_NHAT_BAO_CAO.md
 # Tài liệu bài giảng, sách tham khảo & đề bài
 *.pptx
 *.pdf
+
+*.md

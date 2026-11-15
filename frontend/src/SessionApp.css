@@ -1,0 +1,6 @@
+.session-panel { max-width: 460px; margin: 40px auto; padding: 24px; background: white; border-radius: 12px; color: #182a40; }
+.session-panel label { display: block; margin: 16px 0; }
+.session-panel input { display: block; width: 100%; padding: 10px; box-sizing: border-box; }
+.session-bar { padding: 12px 24px; background: #fff; color: #182a40; border-bottom: 1px solid #ddd; }
+.session-bar button, .session-bar a, .session-panel button { margin: 4px 8px 4px 0; padding: 8px 12px; cursor: pointer; }
+.session-bar button:disabled { opacity: .5; cursor: wait; }

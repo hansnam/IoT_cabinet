@@ -1,0 +1,7 @@
+-r requirements.txt
+
+# Kiểu Django 5.2/DRF cho Pylance và lệnh kiểm tra độc lập.
+django-stubs==5.2.9
+django-stubs-ext==5.2.9
+djangorestframework-stubs==3.16.9
+pyright==1.1.414

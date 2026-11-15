@@ -233,7 +233,7 @@ class RolePolicyTestCase(TestCase):
         self.assertEqual(Group.objects.filter(name__in=ALL_ROLES).count(), 3)
 
     def test_seed_roles_assigns_correct_permissions(self):
-        """Xác minh ADMIN được gán đúng 7 quyền, OPERATOR và VIEWER rỗng quyền trong chặng 03."""
+        """Kiểm tra quyền quản trị tài khoản và quyền thiết bị của ba vai trò."""
         admin_group = Group.objects.get(name=ROLE_ADMIN)
         operator_group = Group.objects.get(name=ROLE_OPERATOR)
         viewer_group = Group.objects.get(name=ROLE_VIEWER)
@@ -241,11 +241,14 @@ class RolePolicyTestCase(TestCase):
         admin_perms = set(admin_group.permissions.values_list("codename", flat=True))
         expected_admin_perms = {
             "add_user", "view_user", "change_user", "delete_user",
-            "view_authsession", "change_authsession", "view_auditlog"
+            "view_authsession", "change_authsession", "view_auditlog",
+            "view_device", "add_device", "change_device", "view_deviceaccess",
+            "add_deviceaccess", "change_deviceaccess", "delete_deviceaccess",
+            "view_deviceconfig", "add_command"
         }
         self.assertEqual(admin_perms, expected_admin_perms)
-        self.assertEqual(operator_group.permissions.count(), 0)
-        self.assertEqual(viewer_group.permissions.count(), 0)
+        self.assertEqual(set(operator_group.permissions.values_list("codename", flat=True)), {"view_device", "add_command"})
+        self.assertEqual(set(viewer_group.permissions.values_list("codename", flat=True)), {"view_device"})
 
     def test_seed_roles_raises_command_error_when_permission_missing(self):
         """Xác minh seed_roles ném CommandError và rollback khi thiếu permission trong DB."""

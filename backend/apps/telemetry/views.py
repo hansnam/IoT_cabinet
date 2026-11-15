@@ -1,6 +1,7 @@
 import csv
 from django.db.models import Avg, Max, Min
 from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework import permissions, status, viewsets
@@ -186,11 +187,7 @@ class TelemetryViewSet(viewsets.ReadOnlyModelViewSet):
             )
         from apps.devices.models import Device
         from apps.devices.policies import require_device_permission
-        device = Device.objects.filter(id=device_id).first()
-        if not device:
-            return Response(
-                {"error": {"code": "DEVICE_NOT_FOUND", "message": f"Không tìm thấy tủ mạng '{device_id}'."}},
-                status=status.HTTP_404_NOT_FOUND
-            )
+        # Không tiết lộ sự tồn tại của tủ nằm ngoài phạm vi người dùng.
+        device = get_object_or_404(visible_devices(request.user), pk=device_id)
         require_device_permission(request.user, device, action='VIEW')
         return build_telemetry_csv_response(device, request.query_params)

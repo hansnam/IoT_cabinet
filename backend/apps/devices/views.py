@@ -10,6 +10,8 @@ from rest_framework.response import Response
 from apps.audit.models import AuditLog
 from apps.audit.services import AuditService
 from apps.commands.models import Command, OutboxMessage
+from apps.commands.dispatch import dispatch_outbox
+from apps.devices.access_services import require_access_admin
 from apps.devices.models import Device, DeviceAccess, DeviceConfig
 from apps.devices.mqtt_client import publish_command_to_broker
 from apps.devices.policies import require_device_permission, visible_devices
@@ -110,7 +112,7 @@ class DeviceViewSet(
         device = self.get_object()
 
         # Kiểm tra trạng thái vòng đời (chỉ thiết bị ACTIVE mới được nhận lệnh điều khiển)
-        if device.status in ('LOCKED', 'DECOMMISSIONED', 'MAINTENANCE'):
+        if device.status != 'ACTIVE':
             return Response(
                 {"error": {"code": "DEVICE_LOCKED", "message": f"Tủ mạng đang ở trạng thái '{device.status}', không thể điều khiển."}},
                 status=status.HTTP_400_BAD_REQUEST
@@ -148,13 +150,17 @@ class DeviceViewSet(
         if 'mode' in validated_data:
             payload['mode'] = validated_data['mode']
             params['mode'] = validated_data['mode']
-            params['duration_s'] = int(request.data.get('duration_s', 60))
+            params['duration_s'] = serializer.validated_data['duration_s']
         payload['params'] = params
 
         request_id = getattr(request, 'request_id', str(uuid.uuid4()))
 
         # Lưu Command và Outbox trong Transaction Atomic
         with transaction.atomic():
+            # Dùng khóa dòng Device để hai request không cấp trùng số thứ tự lệnh.
+            Device.objects.select_for_update().get(pk=device.pk)
+            payload['device_command_seq'] = Command.objects.filter(device=device).count() + 1
+            payload['_auth_session_id'] = request.session.get('auth_session_id')
             cmd = Command.objects.create(
                 device=device,
                 command_type=command_type,
@@ -190,14 +196,7 @@ class DeviceViewSet(
             )
 
         # Xuất bản ngay tới MQTT Broker (nếu có kết nối)
-        published = publish_command_to_broker(device.id, payload)
-        if published:
-            cmd.status = 'SENT'
-            cmd.sent_at = timezone.now()
-            cmd.save(update_fields=['status', 'sent_at'])
-            outbox.status = 'PUBLISHED'
-            outbox.published_at = timezone.now()
-            outbox.save(update_fields=['status', 'published_at'])
+        published = dispatch_outbox(outbox.pk, publish_command_to_broker)
 
         return Response(
             {
@@ -223,7 +222,7 @@ class DeviceViewSet(
                 'applied_config': device.applied_config,
             })
 
-        if device.status in ('LOCKED', 'DECOMMISSIONED', 'MAINTENANCE'):
+        if device.status != 'ACTIVE':
             return Response(
                 {"error": {"code": "DEVICE_LOCKED", "message": f"Tủ mạng đang ở trạng thái '{device.status}', không thể cập nhật cấu hình."}},
                 status=status.HTTP_400_BAD_REQUEST
@@ -237,6 +236,7 @@ class DeviceViewSet(
         new_desired = serializer.validated_data['desired_config']
 
         with transaction.atomic():
+            device = Device.objects.select_for_update().get(pk=device.pk)
             device.desired_config = new_desired
             device.save(update_fields=['desired_config', 'updated_at'])
 
@@ -269,7 +269,8 @@ class DeviceViewSet(
                 'timestamp': timezone.now().isoformat(),
             }
 
-            Command.objects.create(
+            payload['_auth_session_id'] = request.session.get('auth_session_id')
+            cmd = Command.objects.create(
                 device=device,
                 command_type='APPLY_CONFIG',
                 payload=payload,
@@ -277,12 +278,15 @@ class DeviceViewSet(
                 correlation_id=correlation_id,
                 actor=user,
             )
+            outbox = OutboxMessage.objects.create(
+                command=cmd, topic=f'cabinet/v3/devices/{device.id}/commands', payload=payload,
+            )
 
             request_id = getattr(request, 'request_id', None) or str(uuid.uuid4())
             AuditService.record_event(
                 function_key="DEVICE_CONFIG",
                 action="CONFIG_UPDATED",
-                outcome="SUCCESS",
+                outcome="ACCEPTED",
                 summary=f"Cập nhật desired_config v{latest_version} cho tủ {device.id}",
                 request_id=request_id,
                 actor_user=user,
@@ -293,15 +297,17 @@ class DeviceViewSet(
                 metadata={'device_id': device.id}
             )
 
-        publish_command_to_broker(device.id, payload)
+        published = dispatch_outbox(outbox.pk, publish_command_to_broker)
 
         return Response({
-            'status': 'SUCCESS',
+            'status': 'ACCEPTED',
+            'command_id': str(cmd.pk),
+            'published_to_broker': published,
             'device_id': device.id,
             'version': latest_version,
             'desired_config': new_desired,
             'message': f"Đã cập nhật desired_config v{latest_version} và phát lệnh đồng bộ xuống tủ mạng."
-        })
+        }, status=status.HTTP_202_ACCEPTED)
 
     @action(detail=True, methods=['get'])
     def export(self, request, id=None):
@@ -311,3 +317,7 @@ class DeviceViewSet(
 
         from apps.telemetry.views import build_telemetry_csv_response
         return build_telemetry_csv_response(device, request.query_params)
+    def perform_update(self, serializer):
+        """Chỉ ADMIN được sửa thông tin tủ; cấu hình phải đi qua action config có audit."""
+        require_access_admin(self.request.user)
+        serializer.save()

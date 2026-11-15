@@ -180,7 +180,8 @@ SESSION_SAVE_EVERY_REQUEST = False
 # Bảo vệ Cookie chống truy cập từ JavaScript (chống XSS đánh cắp session)
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = 'Lax'  # Chống CSRF, nhưng vẫn cho phép POST từ cùng domain
-SESSION_COOKIE_SECURE = False  # Chỉ True khi triển khai HTTPS thực tế
+SESSION_COOKIE_SECURE = os.getenv('COOKIE_SECURE', 'false').lower() == 'true'
+CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE  # Chỉ True khi triển khai HTTPS thực tế
 
 # Khóa bí mật băm HMAC cho định danh login_attempts
 AUTH_LOG_HMAC_KEY = os.getenv(
@@ -235,5 +236,10 @@ MQTT_BROKER_HOST = os.getenv('MQTT_BROKER_HOST', '127.0.0.1')
 MQTT_BROKER_PORT = int(os.getenv('MQTT_BROKER_PORT', '1883'))
 MQTT_KEEPALIVE = int(os.getenv('MQTT_KEEPALIVE', '60'))
 MQTT_USERNAME = os.getenv('MQTT_USERNAME', 'django_worker')
-MQTT_PASSWORD = os.getenv('MQTT_PASSWORD', 'DjangoWorker@Secret2026')
+MQTT_PASSWORD = os.getenv('MQTT_PASSWORD', '')
 
+
+# Tài khoản quản trị broker tách khỏi worker, chỉ dùng cho lệnh quản lý MQTT.
+MQTT_ADMIN_USERNAME = os.getenv("MQTT_ADMIN_USERNAME", "")
+MQTT_ADMIN_PASSWORD = os.getenv("MQTT_ADMIN_PASSWORD", "")
+MQTT_CA_FILE = os.getenv("MQTT_CA_FILE", "")

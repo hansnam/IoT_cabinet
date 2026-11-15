@@ -1,44 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import './App.css'
+import { api, asList } from './api.js'
 
-// Đường dẫn API chuẩn Django V1.4 (dùng Vite Proxy hoặc biến môi trường)
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 
-// Hàm lấy token CSRF từ cookie hoặc endpoint API của Django
-async function getCsrfToken() {
-  const match = document.cookie.match(/csrftoken=([^;]+)/)
-  if (match && match[1]) return decodeURIComponent(match[1])
-  try {
-    const res = await fetch(`${API_BASE}/auth/csrf/`, { credentials: 'include' })
-    if (res.ok) {
-      const data = await res.json()
-      return data.csrf_token || ''
-    }
-  } catch (err) {
-    console.warn('Không thể lấy CSRF token:', err)
-  }
-  return ''
-}
-
-// Hàm gửi request API kèm credentials và header CSRF tự động cho POST/PATCH/DELETE
-async function apiRequest(endpoint, method = 'GET', body = null) {
-  const headers = { Accept: 'application/json' }
-  const opts = { method, credentials: 'include', headers }
-  if (body) {
-    headers['Content-Type'] = 'application/json'
-    headers['X-CSRFToken'] = await getCsrfToken()
-    opts.body = JSON.stringify(body)
-  }
-  return fetch(`${API_BASE}${endpoint}`, opts)
-}
-
-function App() {
+function App({ sessionUser, onSessionEnded }) {
   const [page, setPage] = useState('dashboard')
   const [devices, setDevices] = useState([])
   const [alerts, setAlerts] = useState([])
   const [telemetry, setTelemetry] = useState([])
   const [commands, setCommands] = useState([])
-  const [user, setUser] = useState(null)
+  const [user, setUser] = useState(sessionUser)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
@@ -60,82 +32,39 @@ function App() {
   }
 
   // Tải dữ liệu toàn hệ thống
-  async function loadData() {
+  const loadData = useCallback(async () => {
     try {
-      const requestOptions = {
-        credentials: 'include',
-        headers: { Accept: 'application/json' }
-      }
-
-      // Gọi đồng thời 5 API nghiệp vụ của Backend
-      const [devicesRes, alertsRes, telemetryRes, commandsRes, meRes] = await Promise.all([
-        fetch(`${API_BASE}/devices/`, requestOptions).catch(() => null),
-        fetch(`${API_BASE}/alerts/`, requestOptions).catch(() => null),
-        fetch(`${API_BASE}/telemetry/`, requestOptions).catch(() => null),
-        fetch(`${API_BASE}/commands/`, requestOptions).catch(() => null),
-        fetch(`${API_BASE}/auth/me/`, requestOptions).catch(() => null),
+      const [deviceBody, alertBody, telemetryBody, commandBody, profile] = await Promise.all([
+        api('/devices/'), api('/alerts/'), api('/telemetry/'), api('/commands/'), api('/auth/me/'),
       ])
-
-      const parseList = async (res) => {
-        if (!res || !res.ok) return []
-        try {
-          const json = await res.json()
-          if (Array.isArray(json)) return json
-          return Array.isArray(json.data) ? json.data : []
-        } catch {
-          return []
-        }
-      }
-
-      // Xử lý thông tin phiên người dùng
-      if (meRes && meRes.ok) {
-        const meJson = await meRes.json()
-        setUser(meJson.data || meJson.user || meJson)
-      } else {
-        setUser(null)
-      }
-
-      // Xử lý danh sách Thiết bị
-      if (devicesRes && devicesRes.ok) {
-        const list = await parseList(devicesRes)
-        setDevices(list)
-      } else if (devicesRes && (devicesRes.status === 401 || devicesRes.status === 403)) {
-        throw new Error('Chưa đăng nhập hoặc phiên làm việc đã hết hạn.')
-      }
-
-      // Xử lý Cảnh báo
-      if (alertsRes && alertsRes.ok) {
-        setAlerts(await parseList(alertsRes))
-      }
-
-      // Xử lý Telemetry
-      if (telemetryRes && telemetryRes.ok) {
-        setTelemetry(await parseList(telemetryRes))
-      }
-
-      // Xử lý Lịch sử lệnh (Commands)
-      if (commandsRes && commandsRes.ok) {
-        setCommands(await parseList(commandsRes))
-      }
-
+      setDevices(asList(deviceBody)); setAlerts(asList(alertBody))
+      setTelemetry(asList(telemetryBody)); setCommands(asList(commandBody))
+      setUser(profile.data || profile.user || profile)
       setError('')
+      if ((profile.data || profile).must_change_password) onSessionEnded()
     } catch (err) {
-      setError(err.message || 'Không thể kết nối đến Backend.')
+      setDevices([]); setAlerts([]); setTelemetry([]); setCommands([])
+      setError(err.message)
+      if (err.status === 401) onSessionEnded()
     } finally {
       setLoading(false)
     }
-  }
+  }, [onSessionEnded])
 
   useEffect(() => {
-    const initialTimer = setTimeout(loadData, 0)
-    // Chu kỳ Polling 3 giây / lần
-    const timer = setInterval(loadData, 3000)
-
-    return () => {
-      clearTimeout(initialTimer)
-      clearInterval(timer)
+    let stopped = false
+    let timer
+    // Chờ lượt tải trước xong mới lên lịch tiếp, tránh các lượt polling chồng nhau.
+    async function poll() {
+      await loadData()
+      if (!stopped) timer = setTimeout(poll, 3000)
     }
-  }, [])
+    timer = setTimeout(poll, 0)
+    return () => {
+      stopped = true
+      clearTimeout(timer)
+    }
+  }, [loadData])
 
   // Xử lý Đăng nhập
   const handleLogin = async (e) => {
@@ -143,14 +72,10 @@ function App() {
     setLoginLoading(true)
     setLoginError('')
     try {
-      const res = await apiRequest('/auth/login/', 'POST', {
+      const data = await api('/auth/login/', { method: 'POST', data: {
         username: loginUsername.trim(),
         password: loginPassword
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        throw new Error(data.message || data.error?.message || 'Tên đăng nhập hoặc mật khẩu không chính xác.')
-      }
+      } })
       setUser(data.user)
       setShowLoginModal(false)
       setLoginPassword('')
@@ -166,8 +91,9 @@ function App() {
   // Xử lý Đăng xuất
   const handleLogout = async () => {
     try {
-      await apiRequest('/auth/logout/', 'POST')
+      await api('/auth/logout/', { method: 'POST' })
       setUser(null)
+      onSessionEnded()
       showToast('Đã đăng xuất.', 'info')
       loadData()
     } catch (err) {
@@ -179,11 +105,7 @@ function App() {
   const handleControlDevice = async (deviceId, payload, actionName) => {
     setActionLoading(`dev-${deviceId}`)
     try {
-      const res = await apiRequest(`/devices/${deviceId}/control/`, 'POST', payload)
-      const data = await res.json()
-      if (!res.ok) {
-        throw new Error(data.message || data.error?.message || 'Không thể thực hiện lệnh điều khiển.')
-      }
+      const data = await api(`/devices/${encodeURIComponent(deviceId)}/control/`, { method: 'POST', data: payload })
       showToast(data.message || `Đã phát lệnh ${actionName} tới tủ ${deviceId}.`, 'success')
       loadData()
     } catch (err) {
@@ -197,11 +119,7 @@ function App() {
   const handleAlertAction = async (alertId, action) => {
     setActionLoading(`alert-${alertId}`)
     try {
-      const res = await apiRequest(`/alerts/${alertId}/${action}/`, 'POST')
-      const data = await res.json()
-      if (!res.ok) {
-        throw new Error(data.message || data.error?.message || 'Thao tác không thành công.')
-      }
+      await api(`/alerts/${encodeURIComponent(alertId)}/${action}/`, { method: 'POST' })
       showToast(
         action === 'acknowledge' ? 'Đã xác nhận sự cố cảnh báo.' : 'Đã đánh dấu giải quyết sự cố.',
         'success'
@@ -534,7 +452,7 @@ function App() {
                               {/* Nút Bật / Tắt Quạt */}
                               <button
                                 className="btn btn-success btn-sm"
-                                disabled={isLoading}
+                                disabled={isLoading || !device.can_operate}
                                 onClick={() =>
                                   handleControlDevice(
                                     devId,
@@ -547,7 +465,7 @@ function App() {
                               </button>
                               <button
                                 className="btn btn-outline btn-sm"
-                                disabled={isLoading}
+                                disabled={isLoading || !device.can_operate}
                                 onClick={() =>
                                   handleControlDevice(
                                     devId,
@@ -562,7 +480,7 @@ function App() {
                               {/* Nút Chuyển chế độ Auto / Manual */}
                               <button
                                 className="btn btn-primary btn-sm"
-                                disabled={isLoading}
+                                disabled={isLoading || !device.can_operate}
                                 onClick={() =>
                                   handleControlDevice(
                                     devId,
@@ -575,7 +493,7 @@ function App() {
                               </button>
                               <button
                                 className="btn btn-outline btn-sm"
-                                disabled={isLoading}
+                                disabled={isLoading || !device.can_operate}
                                 onClick={() =>
                                   handleControlDevice(
                                     devId,
@@ -739,7 +657,7 @@ function App() {
                             {!isClosed && !isAcked && (
                               <button
                                 className="btn btn-primary btn-sm"
-                                disabled={isLoading}
+                                disabled={isLoading || !devices.some(device => device.id === (alert.device_id || alert.device) && device.can_operate)}
                                 onClick={() => handleAlertAction(alertId, 'acknowledge')}
                               >
                                 Xác nhận (ACK)
@@ -748,7 +666,7 @@ function App() {
                             {!isClosed && (
                               <button
                                 className="btn btn-success btn-sm"
-                                disabled={isLoading}
+                                disabled={isLoading || !devices.some(device => device.id === (alert.device_id || alert.device) && device.can_operate)}
                                 onClick={() => handleAlertAction(alertId, 'resolve')}
                               >
                                 Đã giải quyết

@@ -19,6 +19,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 
 from apps.accounts.policies.catalog import (
+    DEVICE_ACTIONS,
     ACTION_AUDIT_VIEW,
     ACTION_SESSION_REVOKE,
     ACTION_SESSION_VIEW,
@@ -52,9 +53,10 @@ ROLE_PERMISSIONS: Final[dict[str, list[str]]] = {
         ACTION_SESSION_VIEW,
         ACTION_SESSION_REVOKE,
         ACTION_AUDIT_VIEW,
+        *DEVICE_ACTIONS,
     ],
-    ROLE_OPERATOR: [],
-    ROLE_VIEWER: [],
+    ROLE_OPERATOR: ['DEVICE_VIEW', 'DEVICE_OPERATE'],
+    ROLE_VIEWER: ['DEVICE_VIEW'],
 }
 
 def clear_user_permission_cache(user: Any) -> None:
