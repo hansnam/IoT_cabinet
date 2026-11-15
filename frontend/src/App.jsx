@@ -14,7 +14,9 @@ async function getCsrfToken() {
       const data = await res.json()
       return data.csrf_token || ''
     }
-  } catch {}
+  } catch (err) {
+    console.warn('Không thể lấy CSRF token:', err)
+  }
   return ''
 }
 
@@ -125,10 +127,14 @@ function App() {
   }
 
   useEffect(() => {
-    loadData()
+    const initialTimer = setTimeout(loadData, 0)
     // Chu kỳ Polling 3 giây / lần
     const timer = setInterval(loadData, 3000)
-    return () => clearInterval(timer)
+
+    return () => {
+      clearTimeout(initialTimer)
+      clearInterval(timer)
+    }
   }, [])
 
   // Xử lý Đăng nhập
