@@ -1,6 +1,145 @@
-.session-panel { max-width: 460px; margin: 40px auto; padding: 24px; background: white; border-radius: 12px; color: #182a40; }
-.session-panel label { display: block; margin: 16px 0; }
-.session-panel input { display: block; width: 100%; padding: 10px; box-sizing: border-box; }
-.session-bar { padding: 12px 24px; background: #fff; color: #182a40; border-bottom: 1px solid #ddd; }
-.session-bar button, .session-bar a, .session-panel button { margin: 4px 8px 4px 0; padding: 8px 12px; cursor: pointer; }
-.session-bar button:disabled { opacity: .5; cursor: wait; }
+/* ==========================================================================
+   Màn hình xác thực — Giao diện sáng (Light Theme)
+   Áp dụng cho Đăng nhập và Đổi mật khẩu bắt buộc
+   ========================================================================== */
+.session-screen {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background-color: var(--bg-app);
+}
+
+.session-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: 32px;
+}
+
+.session-header {
+  margin-bottom: 24px;
+  text-align: center;
+}
+
+.session-brand-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  background: var(--primary);
+  color: #ffffff;
+  font-weight: 800;
+  font-size: 20px;
+  margin-bottom: 12px;
+  letter-spacing: -0.5px;
+}
+
+.session-header h1 {
+  margin: 0 0 6px 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.session-header p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.session-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.session-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+
+.session-field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.session-field small {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.session-btn-submit {
+  width: 100%;
+  margin-top: 8px;
+  height: 40px;
+  background-color: var(--primary);
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.session-btn-submit:hover:not(:disabled) {
+  background-color: var(--primary-hover);
+}
+
+.session-notice {
+  margin-top: 16px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: left;
+}
+
+.session-notice.error {
+  background-color: var(--danger-light);
+  color: var(--danger);
+  border: 1px solid #fca5a5;
+}
+
+.session-notice.success {
+  background-color: var(--success-light);
+  color: var(--success);
+  border: 1px solid #86efac;
+}
+
+.session-notice.info {
+  background-color: var(--primary-light);
+  color: var(--primary);
+  border: 1px solid #bfdbfe;
+}
+
+.session-loading-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 40px 24px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.session-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--border-color);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: session-spin 0.8s linear infinite;
+}
+
+@keyframes session-spin {
+  to { transform: rotate(360deg); }
+}
