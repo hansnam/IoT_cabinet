@@ -16,6 +16,7 @@ from apps.devices.models import Device, DeviceAccess, DeviceConfig
 from apps.devices.mqtt_client import publish_command_to_broker, sync_device_mqtt_access
 from apps.devices.policies import require_device_permission, visible_devices
 from apps.devices.serializers import (
+    CreateDeviceSerializer,
     DeviceConfigSerializer,
     DeviceControlSerializer,
     DeviceSerializer,
@@ -52,6 +53,7 @@ def build_esp32_config_json_and_hash(desired_config: dict) -> tuple[str, str]:
 
 
 class DeviceViewSet(
+    mixins.CreateModelMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
@@ -60,20 +62,54 @@ class DeviceViewSet(
     """
     API ViewSet quản lý Thiết bị tủ mạng (Devices):
     - GET /api/devices/ : Danh sách thiết bị trong phạm vi phân quyền (Scope filtering)
+    - POST /api/devices/ : Thêm thiết bị mới (Chỉ ADMIN)
     - GET /api/devices/{id}/ : Chi tiết thiết bị
+    - PATCH /api/devices/{id}/ : Cập nhật thông tin/trạng thái thiết bị (Chỉ ADMIN)
     - GET /api/devices/{id}/latest/ : Số đo và trạng thái mới nhất
     - POST /api/devices/{id}/control/ : Gửi lệnh điều khiển quạt / chế độ
     - GET/POST /api/devices/{id}/config/ : Đọc / Cập nhật cấu hình mong muốn
+    - POST /api/devices/{id}/resync-config/ : Gửi lại cấu hình đã xác nhận (APPLIED)
     """
     serializer_class = DeviceSerializer
     permission_classes = [permissions.IsAuthenticated]
     lookup_field = 'id'
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return CreateDeviceSerializer
+        return DeviceSerializer
 
     def get_queryset(self):
         user = self.request.user
         if not user or not user.is_authenticated:
             return Device.objects.none()
         return visible_devices(user)
+
+    def create(self, request, *args, **kwargs):
+        require_access_admin(request.user)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        # Thiết bị mới luôn ở REGISTERED (UI-04)
+        device = serializer.save(status='REGISTERED')
+
+        request_id = getattr(request, 'request_id', None) or str(uuid.uuid4())
+        AuditService.record_event(
+            function_key="DEVICE_MANAGEMENT",
+            action="DEVICE_CREATED",
+            outcome="SUCCESS",
+            summary=f"Thêm thiết bị mới: {device.id} ({device.name})",
+            request_id=request_id,
+            actor_user=request.user,
+            actor_type=AuditLog.ActorType.USER,
+            target_type="DEVICE",
+            target_id=device.id,
+            device_id=device.id,
+            metadata={'device_id': device.id}
+        )
+        return Response(
+            DeviceSerializer(device, context={'request': request}).data,
+            status=status.HTTP_201_CREATED
+        )
 
     def retrieve(self, request, *args, **kwargs):
         device = self.get_object()
@@ -317,6 +353,97 @@ class DeviceViewSet(
 
         from apps.telemetry.views import build_telemetry_csv_response
         return build_telemetry_csv_response(device, request.query_params)
+
+    @action(detail=True, methods=['post'], url_path='resync-config')
+    def resync_config(self, request, id=None):
+        """Gửi lại cấu hình đã được thiết bị xác nhận (APPLIED) (UI-04)."""
+        device = self.get_object()
+        if device.status != 'ACTIVE':
+            return Response(
+                {"error": {"code": "DEVICE_NOT_ACTIVE", "message": f"Tủ mạng đang ở trạng thái '{device.status}', chỉ tủ ACTIVE mới được đồng bộ cấu hình."}},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        require_device_permission(request.user, device, action='OPERATE')
+        user = request.user
+
+        applied_cfg_obj = DeviceConfig.objects.filter(device=device, applied=True).order_by('-version').first()
+        if not applied_cfg_obj:
+            return Response(
+                {"error": {"code": "NO_APPLIED_CONFIG", "message": "Chưa có phiên bản cấu hình nào được thiết bị xác nhận APPLIED trước đây."}},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        config_data = applied_cfg_obj.config_data
+        config_json, content_hash = build_esp32_config_json_and_hash(config_data)
+        correlation_id = str(uuid.uuid4())
+
+        with transaction.atomic():
+            device = Device.objects.select_for_update().get(pk=device.pk)
+            cmd_seq = Command.objects.filter(device=device).count() + 1
+            payload = {
+                'schema_version': 3,
+                'command_id': correlation_id,
+                'correlation_id': correlation_id,
+                'type': 'APPLY_CONFIG',
+                'command': 'APPLY_CONFIG',
+                'device_id': device.id,
+                'device_command_seq': cmd_seq,
+                'config_version': applied_cfg_obj.version,
+                'config': config_data,
+                'params': {
+                    'config_version': applied_cfg_obj.version,
+                    'config_json': config_json,
+                    'content_hash': content_hash,
+                },
+                'timestamp': timezone.now().isoformat(),
+                '_source': 'APPLIED_CONFIG_RESYNC',
+                '_auth_session_id': request.session.get('auth_session_id'),
+            }
+
+            cmd = Command.objects.create(
+                device=device,
+                command_type='APPLY_CONFIG',
+                payload=payload,
+                status='PENDING',
+                correlation_id=correlation_id,
+                actor=user,
+            )
+
+            outbox = OutboxMessage.objects.create(
+                command=cmd,
+                topic=f"cabinet/v3/devices/{device.id}/commands",
+                payload=payload,
+                qos=1,
+                status='PENDING'
+            )
+
+            request_id = getattr(request, 'request_id', None) or str(uuid.uuid4())
+            AuditService.record_event(
+                function_key="DEVICE_CONFIG",
+                action="CONFIG_RESYNC",
+                outcome="ACCEPTED",
+                summary=f"Gửi lại cấu hình đã xác nhận v{applied_cfg_obj.version} cho tủ {device.id}",
+                request_id=request_id,
+                actor_user=user,
+                actor_type=AuditLog.ActorType.USER if user else AuditLog.ActorType.SYSTEM,
+                target_type="DEVICE",
+                target_id=device.id,
+                device_id=device.id,
+                correlation_id=correlation_id,
+                metadata={'command_id': str(cmd.id), 'device_id': device.id}
+            )
+
+        published = dispatch_outbox(outbox.pk, publish_command_to_broker)
+
+        return Response({
+            'status': 'ACCEPTED',
+            'command_id': str(cmd.id),
+            'published_to_broker': published,
+            'version': applied_cfg_obj.version,
+            'config': config_data,
+            'message': f"Đã gửi lại cấu hình xác nhận v{applied_cfg_obj.version} xuống thiết bị."
+        }, status=status.HTTP_202_ACCEPTED)
     def perform_update(self, serializer):
         """Chỉ ADMIN được sửa thông tin tủ; đồng bộ khóa MQTT Dynamic Security nếu đổi status."""
         require_access_admin(self.request.user)

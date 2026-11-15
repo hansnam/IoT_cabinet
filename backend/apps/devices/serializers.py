@@ -1,5 +1,40 @@
+import re
 from rest_framework import serializers
 from apps.devices.models import Device, DeviceAccess, DeviceConfig
+
+
+class CreateDeviceSerializer(serializers.ModelSerializer):
+    """
+    Serializer tạo mới thiết bị tủ mạng (UI-04).
+    Chỉ Quản trị viên (ADMIN) mới được tạo.
+    Mã tủ chỉ gồm chữ cái, chữ số, gạch dưới và gạch nối.
+    Thiết bị mới luôn bắt đầu ở trạng thái REGISTERED (chưa kết nối).
+    """
+    id = serializers.CharField(
+        max_length=64,
+        required=True,
+        help_text="Mã định danh duy nhất (ví dụ: CABINET-01)"
+    )
+
+    class Meta:
+        model = Device
+        fields = ['id', 'name', 'source', 'hardware_version', 'firmware_version']
+
+    def validate_id(self, value):
+        val = value.strip()
+        if not re.fullmatch(r'^[A-Za-z0-9_-]{1,64}$', val):
+            raise serializers.ValidationError(
+                "Mã tủ mạng chỉ được gồm chữ cái, chữ số, gạch dưới (_) hoặc gạch nối (-), tối đa 64 ký tự."
+            )
+        if Device.objects.filter(pk=val).exists():
+            raise serializers.ValidationError(f"Mã tủ mạng '{val}' đã tồn tại trong hệ thống.")
+        return val
+
+    def validate_name(self, value):
+        val = value.strip()
+        if not val:
+            raise serializers.ValidationError("Tên tủ mạng không được để trống.")
+        return val
 
 
 class DeviceSerializer(serializers.ModelSerializer):

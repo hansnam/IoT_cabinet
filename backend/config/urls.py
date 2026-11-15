@@ -22,6 +22,7 @@ urlpatterns = [
     path('api/v1/telemetry/', include('apps.telemetry.urls')),
     path('api/v1/commands/', include('apps.commands.urls')),
     path('api/v1/alerts/', include('apps.alerts.urls')),
+    path('api/v1/mqtt/', include('apps.devices.broker_urls')),
 
     # Tương thích trực tiếp với React Frontend (/api/devices, /api/telemetry, /api/alerts, /api/commands)
     path('api/device-access/', include('apps.devices.access_urls')),
@@ -29,6 +30,7 @@ urlpatterns = [
     path('api/telemetry/', include('apps.telemetry.urls')),
     path('api/commands/', include('apps.commands.urls')),
     path('api/alerts/', include('apps.alerts.urls')),
+    path('api/mqtt/', include('apps.devices.broker_urls')),
 
     # Django Admin site
     path("admin/", cabinet_admin_site.urls),

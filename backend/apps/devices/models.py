@@ -190,3 +190,60 @@ class DeviceConfig(models.Model):
 
     def __str__(self):
         return f"{self.device.id} - Config v{self.version} ({'APPLIED' if self.applied else 'PENDING'})"
+
+
+class BrokerConnection(models.Model):
+    """
+    Cấu hình kết nối MQTT Broker tập trung tại runtime (UI-05).
+    Chỉ duy nhất một bản ghi hoạt động (Singleton).
+    Mật khẩu lưu trong CSDL bắt buộc được mã hóa bằng cryptography.Fernet.
+    """
+    WORKER_STATUS_CHOICES = (
+        ('CONNECTED', 'Đã kết nối'),
+        ('RECONNECTING', 'Đang kết nối lại'),
+        ('ERROR', 'Lỗi kết nối'),
+        ('DISCONNECTED', 'Chưa kết nối'),
+    )
+
+    host = models.CharField(max_length=255, default='127.0.0.1', verbose_name="Địa chỉ host/IP Broker")
+    port = models.PositiveIntegerField(default=1883, verbose_name="Cổng Broker")
+    use_tls = models.BooleanField(default=False, verbose_name="Bật TLS/SSL")
+    ca_cert_pem = models.TextField(blank=True, default='', verbose_name="Chứng chỉ CA công khai (PEM)")
+
+    # Thông tin tài khoản cho Worker
+    worker_username = models.CharField(max_length=128, blank=True, default='', verbose_name="Tài khoản Worker")
+    worker_password_encrypted = models.TextField(blank=True, default='', verbose_name="Mật khẩu Worker (đã mã hóa)")
+
+    # Thông tin tài khoản quản trị Dynamic Security (nếu tách biệt)
+    admin_username = models.CharField(max_length=128, blank=True, default='', verbose_name="Tài khoản Quản trị Broker")
+    admin_password_encrypted = models.TextField(blank=True, default='', verbose_name="Mật khẩu Quản trị (đã mã hóa)")
+
+    # Revision và đồng bộ với tiến trình nền
+    revision = models.PositiveIntegerField(default=1, verbose_name="Phiên bản cấu hình")
+    worker_last_seen_revision = models.PositiveIntegerField(default=0, verbose_name="Revision worker đã nhận")
+    worker_status = models.CharField(
+        max_length=32,
+        choices=WORKER_STATUS_CHOICES,
+        default='DISCONNECTED',
+        verbose_name="Trạng thái kết nối của Worker"
+    )
+    worker_last_error = models.TextField(blank=True, default='', verbose_name="Lỗi gần nhất của Worker")
+    worker_heartbeat_at = models.DateTimeField(null=True, blank=True, verbose_name="Thời điểm nhịp tim Worker")
+
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Thời điểm cập nhật")
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='updated_broker_connections',
+        verbose_name="Người cập nhật"
+    )
+
+    class Meta:
+        verbose_name = "Cấu hình kết nối MQTT Broker"
+        verbose_name_plural = "Cấu hình kết nối MQTT Broker"
+
+    def __str__(self):
+        return f"Broker {self.host}:{self.port} (v{self.revision} - {self.worker_status})"
+

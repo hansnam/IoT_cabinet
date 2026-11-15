@@ -12,17 +12,17 @@ _DEVICE_ID_RE = re.compile(r'^[A-Za-z0-9_-]{1,64}$')
 
 
 def _create_connected_mqtt_client(client_prefix: str = 'django-pub') -> mqtt.Client:
-    """Tạo MQTT client có xác thực username/password và TLS (nếu cấu hình CA) rồi kết nối."""
+    """Tạo MQTT client sử dụng cấu hình runtime thống nhất (UI-05)."""
+    from apps.devices.broker_config import get_runtime_mqtt_config
+    cfg = get_runtime_mqtt_config(for_admin=False)
     client = mqtt.Client(client_id=f"{client_prefix}-{uuid.uuid4().hex[:12]}")
-    mqtt_user = getattr(settings, 'MQTT_USERNAME', '')
-    mqtt_pass = getattr(settings, 'MQTT_PASSWORD', '')
-    if mqtt_user:
-        client.username_pw_set(mqtt_user, mqtt_pass)
-    configure_mqtt_tls(client)
+    if cfg.get('username'):
+        client.username_pw_set(cfg['username'], cfg.get('password', ''))
+    configure_mqtt_tls(client, runtime_cfg=cfg)
     client.connect(
-        settings.MQTT_BROKER_HOST,
-        settings.MQTT_BROKER_PORT,
-        settings.MQTT_KEEPALIVE,
+        cfg['host'],
+        cfg['port'],
+        cfg.get('keepalive', 60),
     )
     client.loop_start()
     return client
@@ -95,8 +95,15 @@ def sync_device_mqtt_access(device_id: str, device_status: str) -> bool:
             client.loop_stop()
 
 
-def configure_mqtt_tls(client):
-    """Bật TLS khi có CA; giữ xác minh hostname mặc định, không dùng tls_insecure_set(True)."""
-    ca_file = getattr(settings, 'MQTT_CA_FILE', '')
-    if ca_file:
-        client.tls_set(ca_certs=ca_file)
+def configure_mqtt_tls(client, runtime_cfg=None):
+    """TLS follows the selected configuration; system CA is used when no custom CA exists."""
+    import ssl
+    cfg = runtime_cfg if runtime_cfg is not None else {'use_tls': bool(getattr(settings, 'MQTT_CA_FILE', '')), 'ca_file': getattr(settings, 'MQTT_CA_FILE', '')}
+    if not cfg.get('use_tls'):
+        return
+    context = ssl.create_default_context()
+    if cfg.get('ca_cert_pem'):
+        context.load_verify_locations(cadata=cfg['ca_cert_pem'])
+    elif cfg.get('ca_file'):
+        context.load_verify_locations(cafile=cfg['ca_file'])
+    client.tls_set_context(context)

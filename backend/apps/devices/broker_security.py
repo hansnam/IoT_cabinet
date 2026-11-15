@@ -5,7 +5,6 @@ import threading
 import uuid
 
 import paho.mqtt.client as mqtt
-from django.conf import settings
 from django.core.management.base import CommandError
 
 from apps.devices.mqtt_client import configure_mqtt_tls
@@ -35,14 +34,18 @@ def device_acl(device_id):
 
 def broker_command(command, **fields):
     """Chờ phản hồi đúng correlationData; lỗi kết nối không được coi là đã áp dụng."""
-    if not settings.MQTT_ADMIN_USERNAME or not settings.MQTT_ADMIN_PASSWORD:
-        raise CommandError('Cần MQTT_ADMIN_USERNAME và MQTT_ADMIN_PASSWORD trong backend/.env.')
+    from apps.devices.broker_config import get_runtime_mqtt_config
+    cfg = get_runtime_mqtt_config(for_admin=True)
+    admin_user = cfg.get('username')
+    admin_pass = cfg.get('password')
+    if not admin_user or not admin_pass:
+        raise CommandError('Cần tài khoản và mật khẩu quản trị broker (MQTT_ADMIN_USERNAME / Cấu hình Broker).')
     correlation = uuid.uuid4().hex
     finished = threading.Event()
     result = {}
     client = mqtt.Client(client_id=f'django-admin-{correlation[:12]}')
-    client.username_pw_set(settings.MQTT_ADMIN_USERNAME, settings.MQTT_ADMIN_PASSWORD)
-    configure_mqtt_tls(client)
+    client.username_pw_set(admin_user, admin_pass)
+    configure_mqtt_tls(client, runtime_cfg=cfg)
 
     def on_connect(connection, userdata, flags, rc):
         if rc != 0:
@@ -74,7 +77,7 @@ def broker_command(command, **fields):
     client.on_subscribe = on_subscribe
     client.on_message = on_message
     try:
-        client.connect(settings.MQTT_BROKER_HOST, settings.MQTT_BROKER_PORT, settings.MQTT_KEEPALIVE)
+        client.connect(cfg['host'], cfg['port'], cfg.get('keepalive', 60))
         client.loop_start()
         if not finished.wait(5):
             raise CommandError('Không nhận được phản hồi quản trị broker sau 5 giây.')

@@ -41,17 +41,33 @@ class Command(BaseCommand):
         broker_port = options['port']
         keepalive = options['keepalive']
 
+        cli_host_overridden = any(arg.startswith('--host') for arg in sys.argv)
+        cli_port_overridden = any(arg.startswith('--port') for arg in sys.argv)
+
+        from apps.devices.broker_config import get_runtime_mqtt_config
+        runtime_cfg = get_runtime_mqtt_config(for_admin=False)
+        current_revision = runtime_cfg.get('revision', 0)
+
+        if cli_host_overridden or cli_port_overridden:
+            self.stdout.write(self.style.WARNING(
+                f"[CẢNH BÁO] Worker đang chạy với tham số dòng lệnh ghi đè (--host={broker_host}, --port={broker_port}). "
+                "Cấu hình trên Web sẽ không thay đổi host/port cho tiến trình này."
+            ))
+        else:
+            broker_host = runtime_cfg['host']
+            broker_port = runtime_cfg['port']
+
         self.stdout.write(self.style.SUCCESS(
             f"=== BẮT ĐẦU TIẾN TRÌNH DJANGO MQTT WORKER (ĐẶC TẢ V1.4) ==="
             f"\nKết nối tới MQTT Broker: {broker_host}:{broker_port}"
         ))
 
         client = mqtt.Client(client_id="django_mqtt_worker_service")
-        mqtt_user = getattr(settings, 'MQTT_USERNAME', '')
-        mqtt_pass = getattr(settings, 'MQTT_PASSWORD', '')
+        mqtt_user = runtime_cfg.get('username', '')
+        mqtt_pass = runtime_cfg.get('password', '')
         if mqtt_user:
             client.username_pw_set(mqtt_user, mqtt_pass)
-        configure_mqtt_tls(client)
+        configure_mqtt_tls(client, runtime_cfg=runtime_cfg)
 
         def on_connect(client, userdata, flags, rc):
             if rc == 0:
@@ -122,11 +138,70 @@ class Command(BaseCommand):
         signal.signal(signal.SIGINT, stop_worker)
         signal.signal(signal.SIGTERM, stop_worker)
 
+        def check_runtime_config(curr_rev, curr_client):
+            from apps.devices.models import BrokerConnection
+            try:
+                conn = BrokerConnection.objects.first()
+            except Exception:
+                conn = None
+            if not conn:
+                return curr_rev, curr_client
+
+            now = timezone.now()
+            if not cli_host_overridden and not cli_port_overridden and conn.revision != curr_rev:
+                self.stdout.write(self.style.NOTICE(
+                    f"[MQTT Worker] Cấu hình Broker thay đổi (v{curr_rev} -> v{conn.revision}). Đang kết nối lại có kiểm soát..."
+                ))
+                conn.worker_status = 'RECONNECTING'
+                conn.worker_heartbeat_at = now
+                conn.save(update_fields=['worker_status', 'worker_heartbeat_at'])
+                try:
+                    curr_client.loop_stop()
+                    curr_client.disconnect()
+                except Exception:
+                    pass
+
+                new_cfg = get_runtime_mqtt_config(for_admin=False)
+                new_client = mqtt.Client(client_id="django_mqtt_worker_service")
+                if new_cfg.get('username'):
+                    new_client.username_pw_set(new_cfg['username'], new_cfg.get('password', ''))
+                configure_mqtt_tls(new_client, runtime_cfg=new_cfg)
+                new_client.on_connect = on_connect
+                new_client.on_message = on_message
+
+                try:
+                    new_client.connect(new_cfg['host'], new_cfg['port'], new_cfg.get('keepalive', 60))
+                    new_client.loop_start()
+                    conn.worker_status = 'CONNECTED'
+                    conn.worker_last_seen_revision = conn.revision
+                    conn.worker_last_error = ''
+                    conn.worker_heartbeat_at = timezone.now()
+                    conn.save(update_fields=['worker_status', 'worker_last_seen_revision', 'worker_last_error', 'worker_heartbeat_at'])
+                    self.stdout.write(self.style.SUCCESS(f"[MQTT Worker] Đã chuyển đổi thành công sang cấu hình v{conn.revision} ({new_cfg['host']}:{new_cfg['port']})."))
+                    return conn.revision, new_client
+                except Exception as err:
+                    logger.error("[MQTT Worker] Kết nối lại broker v%d thất bại: %s", conn.revision, err)
+                    conn.worker_status = 'ERROR'
+                    conn.worker_last_error = str(err)
+                    conn.worker_heartbeat_at = timezone.now()
+                    conn.save(update_fields=['worker_status', 'worker_last_error', 'worker_heartbeat_at'])
+                    return conn.revision, new_client
+            else:
+                if not conn.worker_heartbeat_at or (now - conn.worker_heartbeat_at).total_seconds() >= 10:
+                    conn.worker_heartbeat_at = now
+                    if conn.worker_status == 'DISCONNECTED':
+                        conn.worker_status = 'CONNECTED'
+                        conn.save(update_fields=['worker_status', 'worker_heartbeat_at'])
+                    else:
+                        conn.save(update_fields=['worker_heartbeat_at'])
+            return curr_rev, curr_client
+
         # Vòng lặp kiểm tra lệnh timeout và quét outbox
         self.stdout.write(self.style.SUCCESS("[MQTT Worker] Worker đang hoạt động. Nhấn Ctrl+C để dừng."))
         while True:
             try:
                 close_old_connections()
+                current_revision, client = check_runtime_config(current_revision, client)
                 self.sweep_pending_outbox(client)
                 self.check_command_timeouts()
                 self.check_offline_devices()
