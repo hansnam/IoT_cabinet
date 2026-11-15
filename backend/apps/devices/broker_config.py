@@ -9,11 +9,11 @@ import socket
 import tempfile
 import threading
 import uuid
+
 import paho.mqtt.client as mqtt
 from django.conf import settings
-from django.utils import timezone
 
-from apps.devices.crypto import decrypt_secret, encrypt_secret
+from apps.devices.crypto import decrypt_secret
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ def validate_ca_pem(pem: str) -> str:
     try:
         ssl.create_default_context(cadata=cleaned)
     except ssl.SSLError as exc:
-        raise ValueError('Invalid CA certificate.') from exc
+        raise ValueError('Chứng chỉ CA không hợp lệ hoặc không đọc được.') from exc
     return cleaned
 
 
@@ -166,8 +166,10 @@ def test_broker_connection(draft: dict) -> dict:
         if use_tls:
             if ca_temp_file:
                 client_worker.tls_set(ca_certs=ca_temp_file.name)
+            elif getattr(settings, 'MQTT_CA_FILE', ''):
+                client_worker.tls_set(ca_certs=settings.MQTT_CA_FILE)
             else:
-                client_worker.tls_set()
+                client_worker.tls_set()  # Vẫn bật TLS, sử dụng CA của hệ thống.
 
         conn_event = threading.Event()
         conn_result = {'rc': None}
@@ -203,6 +205,8 @@ def test_broker_connection(draft: dict) -> dict:
             if use_tls:
                 if ca_temp_file:
                     client_admin.tls_set(ca_certs=ca_temp_file.name)
+                elif getattr(settings, 'MQTT_CA_FILE', ''):
+                    client_admin.tls_set(ca_certs=settings.MQTT_CA_FILE)
                 else:
                     client_admin.tls_set()
 
@@ -221,8 +225,10 @@ def test_broker_connection(draft: dict) -> dict:
                 try:
                     payload = json.loads(msg.payload.decode('utf-8'))
                     res = payload.get('responses', [{}])[0]
-                    if res.get('correlationData') == correlation and res.get('command') == 'listClients' and not res.get('error'):
-                        admin_result['ok'] = True
+                    if res.get('correlationData') == correlation and res.get('command') == 'listClients':
+                        admin_result['ok'] = not bool(res.get('error'))
+                        if not admin_result['ok']:
+                            admin_result['reason'] = 'Broker từ chối lệnh kiểm tra quyền quản trị.'
                         admin_event.set()
                 except Exception:
                     pass

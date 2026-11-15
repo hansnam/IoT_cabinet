@@ -10,6 +10,7 @@ import DevicesPage from './pages/DevicesPage.jsx'
 import OverviewPage from './pages/OverviewPage.jsx'
 import ProfilePage from './pages/ProfilePage.jsx'
 import AccountsPage from './pages/AccountsPage.jsx'
+import MqttSettingsPage from './pages/MqttSettingsPage.jsx'
 
 /**
  * Thành phần chính App của giao diện
@@ -120,7 +121,7 @@ function App({ sessionUser, onSessionEnded, onUserUpdated, onPasswordChangedSucc
       {/* Điều hướng các trang chức năng độc lập */}
       <Routes>
         <Route path="/" element={<OverviewPage showToast={showToast} />} />
-        <Route path="/devices" element={<DevicesPage showToast={showToast} />} />
+        <Route path="/devices" element={<DevicesPage user={user} showToast={showToast} />} />
         <Route path="/devices/:id" element={<DeviceDetailPage showToast={showToast} />} />
         <Route path="/alerts" element={<AlertsPage showToast={showToast} />} />
         <Route path="/commands" element={<CommandsPage showToast={showToast} />} />
@@ -129,6 +130,16 @@ function App({ sessionUser, onSessionEnded, onUserUpdated, onPasswordChangedSucc
           element={
             user?.role === 'ADMIN' ? (
               <AccountsPage showToast={showToast} />
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
+        />
+        <Route
+          path="/mqtt-settings"
+          element={
+            user?.role === 'ADMIN' ? (
+              <MqttSettingsPage showToast={showToast} />
             ) : (
               <Navigate to="/" replace />
             )

@@ -183,18 +183,22 @@ export default function DeviceDetailPage({ showToast }) {
         humidity_alert_pct: Number(configForm.humidity_alert_pct),
         fan_on_c: fanOn,
         fan_off_c: fanOff,
-        telemetry_interval_ms: Math.max(1, Math.round(Number(configForm.telemetry_interval_s) * 1000)),
+        telemetry_interval_ms: Math.max(1000, Math.round(Number(configForm.telemetry_interval_s) * 1000)),
         manual_timeout_s: Math.max(10, Math.round(Number(configForm.manual_timeout_s))),
       }
 
-      await api(`/devices/${encodeURIComponent(id)}/config/`, {
+      const res = await api(`/devices/${encodeURIComponent(id)}/config/`, {
         method: 'POST',
         data: { desired_config },
       })
 
+      if (res.command_id) {
+        setPendingCommandId(res.command_id)
+      }
+
       setConfigFeedback({
         type: 'success',
-        message: 'Đã lưu cấu hình mong muốn! Thiết bị sẽ nhận và áp dụng cấu hình trong chu kỳ gửi lệnh tiếp theo.',
+        message: 'Đã lưu cấu hình mong muốn! Đang theo dõi phản hồi áp dụng (ACK) từ tủ mạng…',
       })
       showToast?.('Đã lưu cấu hình tủ thành công.', 'success')
       await loadDeviceDetail()
@@ -202,6 +206,45 @@ export default function DeviceDetailPage({ showToast }) {
       setConfigFeedback({
         type: 'error',
         message: err.message || 'Không thể cập nhật cấu hình tủ.',
+      })
+    } finally {
+      setSavingConfig(false)
+    }
+  }
+
+  // Gửi lại cấu hình đã được thiết bị xác nhận (APPLIED)
+  async function handleResyncConfig() {
+    if (!device?.can_operate) {
+      showToast?.('Bạn không có quyền gửi lệnh đồng bộ tủ này.', 'error')
+      return
+    }
+    if (device?.status !== 'ACTIVE') {
+      showToast?.(`Tủ mạng đang ở trạng thái ${device.status}, không thể gửi lại cấu hình.`, 'error')
+      return
+    }
+    if (!window.confirm('Bạn có chắc chắn muốn gửi lại cấu hình đã được thiết bị xác nhận (APPLIED) gần nhất?')) {
+      return
+    }
+
+    setSavingConfig(true)
+    setConfigFeedback(null)
+    try {
+      const res = await api(`/devices/${encodeURIComponent(id)}/resync-config/`, {
+        method: 'POST',
+      })
+      if (res.command_id) {
+        setPendingCommandId(res.command_id)
+      }
+      setConfigFeedback({
+        type: 'success',
+        message: `Đã phát lệnh gửi lại cấu hình xác nhận v${res.version}! Đang theo dõi phản hồi ACK từ tủ…`,
+      })
+      showToast?.('Đã phát lệnh gửi lại cấu hình xác nhận.', 'success')
+      await loadDeviceDetail()
+    } catch (err) {
+      setConfigFeedback({
+        type: 'error',
+        message: err.message || 'Không thể gửi lại cấu hình.',
       })
     } finally {
       setSavingConfig(false)
@@ -267,6 +310,16 @@ export default function DeviceDetailPage({ showToast }) {
           </span>
         </div>
       </div>
+
+      {/* Cảnh báo trạng thái không phải ACTIVE */}
+      {device?.status && device.status !== 'ACTIVE' && (
+        <div className="notice-box warning" style={{ marginBottom: '20px' }}>
+          <span>⚠️</span>
+          <span>
+            <strong>Trạng thái tủ hiện tại: {device.status}.</strong> Các thao tác gửi lệnh điều khiển quạt, chuyển chế độ và cập nhật cấu hình đang bị tạm khóa.
+          </span>
+        </div>
+      )}
 
       {/* Nhóm 1: Thẻ thông tin tổng quan tủ */}
       <section className="card detail-info-card" aria-label="Thông tin tổng quan tủ mạng">
@@ -471,6 +524,62 @@ export default function DeviceDetailPage({ showToast }) {
             </div>
           )}
 
+          {/* Đối chiếu song song Cấu hình đã lưu vs Thiết bị đã xác nhận (UI-04) */}
+          <div
+            style={{
+              padding: '16px 20px',
+              backgroundColor: 'var(--bg-subtle)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--border-color)',
+              marginBottom: '20px',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <strong style={{ fontSize: '14px', color: 'var(--text-main)' }}>
+                Đối chiếu trạng thái cấu hình tủ
+              </strong>
+              {device?.applied_config &&
+              Object.keys(device.applied_config).length > 0 &&
+              JSON.stringify(device.desired_config) === JSON.stringify(device.applied_config) ? (
+                <span className="status-pill online">✓ Thiết bị đã áp dụng</span>
+              ) : (
+                <span className="status-pill pending">⏱️ Đang chờ phần cứng áp dụng (Pending ACK)</span>
+              )}
+            </div>
+
+            <div className="config-grid">
+              <div className="info-item">
+                <span className="info-label">Cấu hình mong muốn đã lưu (Desired)</span>
+                <span className="info-value" style={{ fontSize: '13px' }}>
+                  {device?.desired_config && Object.keys(device.desired_config).length > 0 ? (
+                    <>
+                      Quạt: Bật {device.desired_config.fan_on_c ?? '--'}°C / Tắt {device.desired_config.fan_off_c ?? '--'}°C<br />
+                      Cảnh báo: {device.desired_config.temp_alert_c ?? device.desired_config.max_temp ?? '--'}°C · {device.desired_config.humidity_alert_pct ?? device.desired_config.max_hum ?? '--'}%<br />
+                      Chu kỳ: {device.desired_config.telemetry_interval_ms ? `${device.desired_config.telemetry_interval_ms} ms` : '--'} · Chế độ tay: {device.desired_config.manual_timeout_s ? `${device.desired_config.manual_timeout_s} s` : '--'}
+                    </>
+                  ) : (
+                    'Chưa có cấu hình mong muốn.'
+                  )}
+                </span>
+              </div>
+
+              <div className="info-item">
+                <span className="info-label">Phần cứng xác nhận áp dụng (Applied)</span>
+                <span className="info-value" style={{ fontSize: '13px' }}>
+                  {device?.applied_config && Object.keys(device.applied_config).length > 0 ? (
+                    <>
+                      Quạt: Bật {device.applied_config.fan_on_c ?? '--'}°C / Tắt {device.applied_config.fan_off_c ?? '--'}°C<br />
+                      Cảnh báo: {device.applied_config.temp_alert_c ?? device.applied_config.max_temp ?? '--'}°C · {device.applied_config.humidity_alert_pct ?? device.applied_config.max_hum ?? '--'}%<br />
+                      Chu kỳ: {device.applied_config.telemetry_interval_ms ? `${device.applied_config.telemetry_interval_ms} ms` : '--'} · Chế độ tay: {device.applied_config.manual_timeout_s ? `${device.applied_config.manual_timeout_s} s` : '--'}
+                    </>
+                  ) : (
+                    'Chưa nhận được phản hồi APPLIED từ thiết bị.'
+                  )}
+                </span>
+              </div>
+            </div>
+          </div>
+
           <form onSubmit={handleSaveConfig} className="config-form">
             <div className="config-grid">
               <div className="form-field">
@@ -554,13 +663,28 @@ export default function DeviceDetailPage({ showToast }) {
               </div>
             </div>
 
-            <div className="form-actions" style={{ marginTop: '20px' }}>
+            <div className="form-actions" style={{ marginTop: '20px', display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn btn-outline"
+                disabled={
+                  savingConfig ||
+                  !device?.can_operate ||
+                  device?.status !== 'ACTIVE' ||
+                  !device?.applied_config ||
+                  Object.keys(device.applied_config).length === 0
+                }
+                onClick={handleResyncConfig}
+                title="Gửi lại đúng snapshot cấu hình mà thiết bị đã từng xác nhận (APPLIED)"
+              >
+                🔄 Gửi lại cấu hình đã xác nhận (Resync)
+              </button>
               <button
                 type="submit"
                 className="btn btn-primary"
-                disabled={savingConfig || !device?.can_operate}
+                disabled={savingConfig || !device?.can_operate || device?.status !== 'ACTIVE'}
               >
-                {savingConfig ? 'Đang lưu cấu hình…' : 'Lưu cấu hình tủ'}
+                {savingConfig ? 'Đang gửi lệnh cấu hình…' : '💾 Lưu & Phát lệnh cấu hình'}
               </button>
             </div>
           </form>

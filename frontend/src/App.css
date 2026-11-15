@@ -431,10 +431,11 @@
 .menu-item-link {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: flex-start;
+  gap: 10px;
   width: 100%;
-  height: 34px;
-  padding: 0 10px;
+  height: 36px;
+  padding: 0 12px;
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -445,6 +446,23 @@
   text-decoration: none;
   cursor: pointer;
   transition: background-color 0.15s ease;
+}
+
+.menu-item-btn .menu-item-icon,
+.menu-item-link .menu-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+  font-size: 15px;
+}
+
+.menu-item-btn .menu-item-text,
+.menu-item-link .menu-item-text {
+  flex: 1;
+  text-align: left;
 }
 
 .menu-item-btn:hover,
@@ -1202,7 +1220,7 @@ td small {
   color: var(--text-main);
 }
 
-.form-group input,
+.form-group input:not([type="checkbox"]):not([type="radio"]),
 .form-group select,
 .form-group textarea {
   width: 100%;
@@ -1221,12 +1239,40 @@ td small {
   padding: 8px 12px;
 }
 
-.form-group input:focus,
+.form-group input:not([type="checkbox"]):not([type="radio"]):focus,
 .form-group select:focus,
 .form-group textarea:focus {
   outline: none;
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.form-group input[type="checkbox"],
+.form-group input[type="radio"],
+.checkbox-label input[type="checkbox"] {
+  width: 18px !important;
+  height: 18px !important;
+  padding: 0 !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 4px !important;
+  margin: 0 !important;
+  cursor: pointer;
+  accent-color: var(--primary);
+  flex-shrink: 0;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-main);
+  user-select: none;
+  width: fit-content;
 }
 
 .form-group .field-hint {

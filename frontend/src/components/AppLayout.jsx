@@ -26,6 +26,9 @@ function getRouteMetadata(pathname) {
   if (pathname === '/accounts') {
     return { title: 'Tài khoản & Phân quyền', breadcrumb: 'Quản trị / Tài khoản' }
   }
+  if (pathname === '/mqtt-settings') {
+    return { title: 'Cấu hình Broker MQTT', breadcrumb: 'Quản trị / Cấu hình Broker' }
+  }
   if (pathname === '/profile') {
     return { title: 'Hồ sơ tài khoản & Bảo mật', breadcrumb: 'Tài khoản / Hồ sơ' }
   }
@@ -156,6 +159,14 @@ export default function AppLayout({
                 <span className="nav-icon" aria-hidden="true">👥</span>
                 <span className="nav-text">Tài khoản & Phân quyền</span>
               </NavLink>
+
+              <NavLink
+                to="/mqtt-settings"
+                className={({ isActive }) => `nav-button ${isActive ? 'active' : ''}`}
+              >
+                <span className="nav-icon" aria-hidden="true">🔌</span>
+                <span className="nav-text">Cấu hình Broker MQTT</span>
+              </NavLink>
             </>
           )}
 
@@ -265,7 +276,8 @@ export default function AppLayout({
                       navigate('/profile')
                     }}
                   >
-                    <span>👤</span> Hồ sơ & Đổi mật khẩu
+                    <span className="menu-item-icon" aria-hidden="true">👤</span>
+                    <span className="menu-item-text">Hồ sơ & Đổi mật khẩu</span>
                   </button>
 
                   {user?.role === 'ADMIN' && (
@@ -278,7 +290,23 @@ export default function AppLayout({
                         navigate('/accounts')
                       }}
                     >
-                      <span>👥</span> Tài khoản & Phân quyền
+                      <span className="menu-item-icon" aria-hidden="true">👥</span>
+                      <span className="menu-item-text">Tài khoản & Phân quyền</span>
+                    </button>
+                  )}
+
+                  {user?.role === 'ADMIN' && (
+                    <button
+                      type="button"
+                      className="menu-item-btn"
+                      role="menuitem"
+                      onClick={() => {
+                        setAccountMenuOpen(false)
+                        navigate('/mqtt-settings')
+                      }}
+                    >
+                      <span className="menu-item-icon" aria-hidden="true">🔌</span>
+                      <span className="menu-item-text">Cấu hình Broker MQTT</span>
                     </button>
                   )}
 
@@ -291,7 +319,8 @@ export default function AppLayout({
                       role="menuitem"
                       onClick={() => setAccountMenuOpen(false)}
                     >
-                      <span>⚙️</span> Trang quản trị Django
+                      <span className="menu-item-icon" aria-hidden="true">⚙️</span>
+                      <span className="menu-item-text">Trang quản trị Django</span>
                     </a>
                   )}
 
@@ -306,7 +335,8 @@ export default function AppLayout({
                       onLogout()
                     }}
                   >
-                    <span>🚪</span> Đăng xuất
+                    <span className="menu-item-icon" aria-hidden="true">🚪</span>
+                    <span className="menu-item-text">Đăng xuất</span>
                   </button>
                 </div>
               )}
