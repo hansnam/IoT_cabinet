@@ -39,15 +39,29 @@ class DeviceSerializer(serializers.ModelSerializer):
 
 class DeviceAccessSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
+    user_full_name = serializers.CharField(source='user.full_name', read_only=True)
     device_name = serializers.CharField(source='device.name', read_only=True)
+    granted_by_username = serializers.CharField(source='granted_by.username', read_only=True)
+    is_valid = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = DeviceAccess
         fields = [
-            'id', 'user', 'username', 'device', 'device_name',
-            'role', 'granted_by', 'granted_at', 'expires_at'
+            'id', 'user', 'username', 'user_full_name', 'device', 'device_name',
+            'role', 'granted_by', 'granted_by_username', 'granted_at', 'expires_at', 'is_valid'
         ]
-        read_only_fields = ['granted_at']
+        read_only_fields = ['granted_at', 'granted_by']
+
+
+class GrantDeviceAccessSerializer(serializers.Serializer):
+    """
+    Serializer tiếp nhận yêu cầu cấp hoặc cập nhật quyền truy cập tủ.
+    Không nhận granted_by từ client; actor được lấy từ phiên đăng nhập.
+    """
+    user_id = serializers.UUIDField(required=True)
+    device_id = serializers.CharField(max_length=64, required=True)
+    role = serializers.ChoiceField(choices=['VIEW', 'OPERATE'], required=True)
+    expires_at = serializers.DateTimeField(required=False, allow_null=True, default=None)
 
 
 class DeviceControlSerializer(serializers.Serializer):
@@ -97,3 +111,8 @@ class DeviceConfigSerializer(serializers.Serializer):
         except (ValueError, TypeError, OverflowError):
             raise serializers.ValidationError('Các ngưỡng phải là số hữu hạn; chu kỳ và thời gian phải là số nguyên dương.')
         return value
+
+
+class UpdateDeviceAccessSerializer(serializers.Serializer):
+    role = serializers.ChoiceField(choices=["VIEW", "OPERATE"], required=False)
+    expires_at = serializers.DateTimeField(required=False, allow_null=True)

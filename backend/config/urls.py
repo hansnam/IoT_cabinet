@@ -15,6 +15,7 @@ urlpatterns = [
 
     # API v1 Endpoints (Accounts / IAM / Auth)
     path("api/v1/", include("apps.accounts.urls")),
+    path("api/v1/device-access/", include("apps.devices.access_urls")),
 
     # IoT REST API v1
     path('api/v1/devices/', include('apps.devices.urls')),
@@ -23,6 +24,7 @@ urlpatterns = [
     path('api/v1/alerts/', include('apps.alerts.urls')),
 
     # Tương thích trực tiếp với React Frontend (/api/devices, /api/telemetry, /api/alerts, /api/commands)
+    path('api/device-access/', include('apps.devices.access_urls')),
     path('api/devices/', include('apps.devices.urls')),
     path('api/telemetry/', include('apps.telemetry.urls')),
     path('api/commands/', include('apps.commands.urls')),
