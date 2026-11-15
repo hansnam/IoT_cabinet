@@ -31,21 +31,21 @@ from flask import jsonify, request
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import InterfaceError, OperationalError, TimeoutError as SQLAlchemyTimeoutError
 
-from backend.app.auth.tokens import issue_access_token
-from backend.app.models.command import Command
-from backend.app.models.device import Device, DeviceAccess, DeviceConfig
-from backend.app.models.iam import AuthSession, Permission, Role, RolePermission, User, UserRole
-from backend.app.permissions.decorators import require_auth, require_permission
-from backend.app.permissions.messages import DispatchReason
-from backend.app.permissions.service import (
+from back.backend.app.auth.tokens import issue_access_token
+from back.backend.app.models.command import Command
+from back.backend.app.models.device import Device, DeviceAccess, DeviceConfig
+from back.backend.app.models.iam import AuthSession, Permission, Role, RolePermission, User, UserRole
+from back.backend.app.permissions.decorators import require_auth, require_permission
+from back.backend.app.permissions.messages import DispatchReason
+from back.backend.app.permissions.service import (
     AuthRequired,
     DeviceScopeNotFound,
     DispatchAuthorizationResult,
     PermissionDenied,
     PermissionService,
 )
-from backend.app.security.context import AuthContext
-from backend.app.security.messages import ErrorCode, ErrorMessage
+from back.backend.app.security.context import AuthContext
+from back.backend.app.security.messages import ErrorCode, ErrorMessage
 
 
 # ==============================================================================

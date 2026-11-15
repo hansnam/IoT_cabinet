@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "author": "tv1",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 0, "left": 0, "attrs": {} },
+    { "type": "wokwi-dht22", "id": "dht1", "top": -120, "left": -110, "attrs": { "temperature": "29.0", "humidity": "60.0" } },
+    { "type": "wokwi-relay-module", "id": "relay1", "top": 10, "left": 180, "attrs": { "transistor": "npn" } },
+    { "type": "wokwi-led", "id": "led_net", "top": 40, "left": -150, "attrs": { "color": "blue", "label": "WIFI/MQTT" } },
+    { "type": "wokwi-led", "id": "led_fault", "top": 110, "left": -90, "attrs": { "color": "red", "label": "FAULT" } },
+    { "type": "wokwi-led", "id": "led_fan", "top": 100, "left": 310, "attrs": { "color": "yellow", "label": "FAN" } },
+    { "type": "wokwi-resistor", "id": "r_pullup", "top": -30, "left": -80, "attrs": { "value": "10000" } },
+    { "type": "wokwi-resistor", "id": "r_net", "top": 150, "left": -150, "attrs": { "value": "330" } },
+    { "type": "wokwi-resistor", "id": "r_fault", "top": 170, "left": -90, "attrs": { "value": "330" } },
+    { "type": "wokwi-resistor", "id": "r_fan", "top": 170, "left": 310, "attrs": { "value": "330" } }
+  ],
+  "connections": [
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+    [ "esp:3V3", "dht1:VCC", "red", [] ],
+    [ "esp:GND.1", "dht1:GND", "black", [] ],
+    [ "esp:23", "dht1:SDA", "green", [] ],
+    [ "esp:3V3", "r_pullup:1", "red", [] ],
+    [ "r_pullup:2", "dht1:SDA", "green", [] ],
+    [ "esp:5V", "relay1:VCC", "red", [] ],
+    [ "esp:GND.2", "relay1:GND", "black", [] ],
+    [ "esp:18", "relay1:IN", "orange", [] ],
+    [ "esp:5V", "relay1:COM", "red", [] ],
+    [ "relay1:NO", "led_fan:A", "purple", [] ],
+    [ "led_fan:C", "r_fan:1", "black", [] ],
+    [ "r_fan:2", "esp:GND.2", "black", [] ],
+    [ "esp:19", "led_net:A", "blue", [] ],
+    [ "led_net:C", "r_net:1", "black", [] ],
+    [ "r_net:2", "esp:GND.1", "black", [] ],
+    [ "esp:25", "led_fault:A", "magenta", [] ],
+    [ "led_fault:C", "r_fault:1", "black", [] ],
+    [ "r_fault:2", "esp:GND.1", "black", [] ]
+  ]
+}

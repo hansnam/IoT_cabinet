@@ -5,9 +5,9 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
-from backend.app.security.messages import ErrorMessage
-from backend.app import create_app
-from backend.app.extensions import db
+from back.backend.app.security.messages import ErrorMessage
+from back.backend.app import create_app
+from back.backend.app.extensions import db
 
 TEST_DB_ALLOWLIST = frozenset({"iot_cabinet_test"})
 

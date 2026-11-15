@@ -7,12 +7,12 @@ Tổng cộng: 12 hàm test, tương đương 21 ca test sau parametrize.
 import os
 import pytest
 from sqlalchemy import inspect, text
-from backend.app.models import (
+from back.backend.app.models import (
     Role, Permission, RolePermission, User, UserRole,
     Device, DeviceAccess, DeviceCredential, DeviceConfig, DeviceShadow,
     AlertRule,
 )
-from backend.seed import run_seed
+from back.backend.seed import run_seed
 
 CORE_27_TABLES = frozenset({
     # IAM (8 bảng)
