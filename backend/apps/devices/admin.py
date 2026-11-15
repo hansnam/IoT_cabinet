@@ -5,6 +5,7 @@ from django.utils import timezone
 from apps.accounts.admin_site import cabinet_admin_site
 from apps.devices.models import Device, DeviceAccess, DeviceConfig
 from apps.devices.access_services import grant_device_access, revoke_device_access
+from apps.devices.mqtt_client import sync_device_mqtt_access
 
 
 class DeviceForm(forms.ModelForm):
@@ -58,6 +59,12 @@ class DeviceAdmin(admin.ModelAdmin):
             'fields': ('created_at', 'updated_at')
         }),
     )
+
+    def save_model(self, request, obj, form, change):
+        status_changed = (not change) or ('status' in form.changed_data)
+        super().save_model(request, obj, form, change)
+        if status_changed:
+            sync_device_mqtt_access(obj.id, obj.status)
 
 
 class DeviceAccessForm(forms.ModelForm):

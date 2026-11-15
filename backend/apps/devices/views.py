@@ -13,7 +13,7 @@ from apps.commands.models import Command, OutboxMessage
 from apps.commands.dispatch import dispatch_outbox
 from apps.devices.access_services import require_access_admin
 from apps.devices.models import Device, DeviceAccess, DeviceConfig
-from apps.devices.mqtt_client import publish_command_to_broker
+from apps.devices.mqtt_client import publish_command_to_broker, sync_device_mqtt_access
 from apps.devices.policies import require_device_permission, visible_devices
 from apps.devices.serializers import (
     DeviceConfigSerializer,
@@ -318,6 +318,26 @@ class DeviceViewSet(
         from apps.telemetry.views import build_telemetry_csv_response
         return build_telemetry_csv_response(device, request.query_params)
     def perform_update(self, serializer):
-        """Chỉ ADMIN được sửa thông tin tủ; cấu hình phải đi qua action config có audit."""
+        """Chỉ ADMIN được sửa thông tin tủ; đồng bộ khóa MQTT Dynamic Security nếu đổi status."""
         require_access_admin(self.request.user)
-        serializer.save()
+        old_status = serializer.instance.status
+        updated_device = serializer.save()
+        if old_status != updated_device.status:
+            synced = sync_device_mqtt_access(updated_device.id, updated_device.status)
+            request_id = getattr(self.request, 'request_id', None) or str(uuid.uuid4())
+            metadata = {'device_id': updated_device.id, 'fields': ['status']}
+            if not synced:
+                metadata['reason'] = 'MQTT_DYNSEC_NOT_SYNCED'
+            AuditService.record_event(
+                function_key="DEVICE_MANAGEMENT",
+                action="DEVICE_STATUS_UPDATED",
+                outcome="SUCCESS",
+                summary=f"Đổi trạng thái tủ {updated_device.id}: {old_status} -> {updated_device.status}",
+                request_id=request_id,
+                actor_user=self.request.user,
+                actor_type=AuditLog.ActorType.USER,
+                target_type="DEVICE",
+                target_id=updated_device.id,
+                device_id=updated_device.id,
+                metadata=metadata,
+            )

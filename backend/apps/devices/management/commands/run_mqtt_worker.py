@@ -4,18 +4,23 @@ import signal
 import sys
 import time
 import uuid
-from datetime import timedelta
+from datetime import timedelta, timezone as dt_timezone
 import paho.mqtt.client as mqtt
 from django.conf import settings
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.management.base import BaseCommand
 from django.db import close_old_connections, transaction
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
+from apps.accounts.models import AuthSession
+from apps.accounts.services.sessions import verify_auth_session
 from apps.alerts.models import Alert
 from apps.audit.models import AuditLog
 from apps.audit.services import AuditService
 from apps.commands.models import Command as CommandModel, OutboxMessage
-from apps.devices.models import Device, DeviceConfig
+from apps.devices.models import DEVICE_OFFLINE_THRESHOLD_SECONDS, Device, DeviceConfig
+from apps.devices.policies import require_device_permission
 from apps.devices.mqtt_client import configure_mqtt_tls
 from apps.commands.dispatch import dispatch_outbox
 from apps.telemetry.models import Telemetry
@@ -125,10 +130,10 @@ class Command(BaseCommand):
                 self.sweep_pending_outbox(client)
                 self.check_command_timeouts()
                 self.check_offline_devices()
-                time.sleep(5)
+                time.sleep(1)
             except Exception as e:
                 logger.error("[MQTT Worker] Lỗi vòng lặp quét định kỳ: %s", e)
-                time.sleep(5)
+                time.sleep(2)
 
     def process_telemetry(self, device_id: str, data: dict):
         """
@@ -137,18 +142,18 @@ class Command(BaseCommand):
         và định dạng tương thích (temp, hum, fan).
         Chặn thiết bị lạ không thuộc whitelist trong DB.
         """
-        # 1. Whitelist validation: Chỉ nhận dữ liệu từ tủ mạng đã đăng ký trong hệ thống
+        # 1. Whitelist & lifecycle validation: Chỉ nhận dữ liệu từ tủ mạng đã kích hoạt (ACTIVE)
         device = Device.objects.filter(id=device_id).first()
         if not device:
             logger.warning("[MQTT Worker] Bỏ qua gói tin viễn trắc từ thiết bị chưa đăng ký: %s", device_id)
             return
 
-        if device.status in ('LOCKED', 'DECOMMISSIONED', 'MAINTENANCE'):
+        if device.status != 'ACTIVE':
             logger.warning("[MQTT Worker] Thiết bị %s đang ở trạng thái '%s', từ chối nhận viễn trắc.",
                            device_id, device.status)
             return
 
-        sensor_ok = data.get('sensor_ok', True)
+        sensor_ok = bool(data.get('sensor_ok', True))
 
         # Dual-parser nhiệt độ & độ ẩm
         temp_raw = data.get('temperature_c')
@@ -159,8 +164,12 @@ class Command(BaseCommand):
         if hum_raw is None:
             hum_raw = data.get('humidity', data.get('hum'))
 
-        temperature = float(temp_raw) if temp_raw is not None else None
-        humidity = float(hum_raw) if hum_raw is not None else None
+        if sensor_ok:
+            temperature = float(temp_raw) if temp_raw is not None else None
+            humidity = float(hum_raw) if hum_raw is not None else None
+        else:
+            temperature = None
+            humidity = None
 
         # Validate phạm vi vật lý của cảm biến DHT22 nếu cảm biến hoạt động bình thường
         if sensor_ok and temperature is not None and humidity is not None:
@@ -187,17 +196,33 @@ class Command(BaseCommand):
         door_status = 'OPEN' if str(door_raw).upper() in ('1', 'OPEN', 'TRUE') else 'CLOSED'
 
         mode = str(data.get('mode', 'AUTO')).upper()
-        uptime = int(data.get('uptime', 0))
+        if data.get('uptime_ms') is not None:
+            uptime = int(data['uptime_ms']) // 1000
+        else:
+            uptime = int(data.get('uptime', 0))
         seq = int(data.get('seq', 0))
         now = timezone.now()
+
+        measured_at = now
+        raw_measured = data.get('measured_at')
+        if isinstance(raw_measured, str) and raw_measured.strip():
+            parsed_dt = parse_datetime(raw_measured)
+            if parsed_dt is not None:
+                if timezone.is_naive(parsed_dt):
+                    parsed_dt = timezone.make_aware(parsed_dt, dt_timezone.utc)
+                measured_at = parsed_dt
 
         with transaction.atomic():
             # Cập nhật bản chiếu số đo mới nhất (projection)
             device.last_seen_at = now
-            if temperature is not None:
-                device.latest_temperature = temperature
-            if humidity is not None:
-                device.latest_humidity = humidity
+            if sensor_ok:
+                if temperature is not None:
+                    device.latest_temperature = temperature
+                if humidity is not None:
+                    device.latest_humidity = humidity
+            else:
+                device.latest_temperature = None
+                device.latest_humidity = None
             device.latest_fan_status = fan_status
             device.latest_door_status = door_status
             device.latest_mode = mode
@@ -210,13 +235,13 @@ class Command(BaseCommand):
             Telemetry.objects.create(
                 device=device,
                 seq=seq,
-                temperature=temperature if temperature is not None else 0.0,
-                humidity=humidity if humidity is not None else 0.0,
+                temperature=temperature,
+                humidity=humidity,
                 fan_status=fan_status,
                 door_status=door_status,
                 mode=mode,
                 uptime=uptime,
-                measured_at=now,
+                measured_at=measured_at,
                 raw_data=data
             )
 
@@ -226,14 +251,16 @@ class Command(BaseCommand):
     def evaluate_alerts(self, device: Device, temp, hum, fan: str, door: str, sensor_ok: bool = True):
         """
         Động cơ đánh giá cảnh báo tự động với Hysteresis chống dao động ngưỡng:
-        - HIGH_TEMP: Ngưỡng cấu hình (mặc định 35°C), trễ phục hồi 1.0°C
-        - HIGH_HUMIDITY: Ngưỡng cấu hình (mặc định 80%), trễ phục hồi 3.0%
+        - HIGH_TEMP: Ngưỡng cấu hình (temp_alert_c / max_temp, mặc định 35°C), biên trễ temp_clear_margin_c (mặc định 1.0°C)
+        - HIGH_HUMIDITY: Ngưỡng cấu hình (humidity_alert_pct / max_hum, mặc định 80%), biên trễ humidity_clear_margin_pct (mặc định 3.0%)
         - SENSOR_FAULT: Cảm biến DHT22 báo lỗi
         - DOOR_OPEN: Trạng thái cửa tủ đang mở
         """
         cfg = device.applied_config or device.desired_config or {}
-        max_temp = float(cfg.get('max_temp', 35.0))
-        max_hum = float(cfg.get('max_hum', 80.0))
+        max_temp = float(cfg.get('temp_alert_c', cfg.get('max_temp', 35.0)))
+        max_hum = float(cfg.get('humidity_alert_pct', cfg.get('max_hum', 80.0)))
+        temp_margin = float(cfg.get('temp_clear_margin_c', 1.0))
+        hum_margin = float(cfg.get('humidity_clear_margin_pct', 3.0))
 
         # 1. Cảnh báo lỗi cảm biến (SENSOR_FAULT)
         if not sensor_ok:
@@ -266,8 +293,8 @@ class Command(BaseCommand):
                         threshold=max_temp,
                         current_value=temp
                     )
-            elif temp <= (max_temp - 1.0):
-                # Tự động khắc phục khi nhiệt độ hạ qua biên trễ 1.0°C
+            elif temp <= (max_temp - temp_margin):
+                # Tự động khắc phục khi nhiệt độ hạ qua biên trễ
                 Alert.objects.filter(device=device, alert_type='HIGH_TEMP', status__in=['OPEN', 'ACKNOWLEDGED']).update(
                     status='RESOLVED',
                     resolved_at=timezone.now()
@@ -287,7 +314,7 @@ class Command(BaseCommand):
                         threshold=max_hum,
                         current_value=hum
                     )
-            elif hum <= (max_hum - 3.0):
+            elif hum <= (max_hum - hum_margin):
                 # Tự động khắc phục khi độ ẩm hạ qua biên trễ 3.0%
                 Alert.objects.filter(device=device, alert_type='HIGH_HUMIDITY', status__in=['OPEN', 'ACKNOWLEDGED']).update(
                     status='RESOLVED',
@@ -354,9 +381,15 @@ class Command(BaseCommand):
             cmd.save(update_fields=['status', 'acked_at', 'error_message'])
 
             if is_success and cmd.command_type == 'APPLY_CONFIG':
+                result_cfg_ver = data.get('result', {}).get('config_version') if isinstance(data.get('result'), dict) else None
+                cfg_version = (
+                    cmd.payload.get('config_version')
+                    or (cmd.payload.get('params') or {}).get('config_version')
+                    or result_cfg_ver
+                )
                 config = DeviceConfig.objects.filter(
-                    device_id=device_id, version=cmd.payload.get('config_version'),
-                ).first()
+                    device_id=device_id, version=cfg_version,
+                ).first() if cfg_version else None
                 if config:
                     config.applied, config.applied_at = True, now
                     config.save(update_fields=['applied', 'applied_at'])
@@ -407,7 +440,7 @@ class Command(BaseCommand):
     def process_status(self, device_id: str, data: dict):
         """Xử lý gói tin heartbeat / status / LWT từ node ESP32"""
         device = Device.objects.filter(id=device_id).first()
-        if not device or device.status in ('LOCKED', 'DECOMMISSIONED', 'MAINTENANCE'):
+        if not device or device.status != 'ACTIVE':
             return
 
         now = timezone.now()
@@ -415,8 +448,8 @@ class Command(BaseCommand):
         is_offline = (conn_str == 'OFFLINE') or (data.get('online') is False)
 
         if is_offline:
-            # Bản tin LWT hoặc báo ngắt kết nối: lùi last_seen_at quá ngưỡng 30s và phát cảnh báo DEVICE_OFFLINE
-            device.last_seen_at = now - timedelta(seconds=60)
+            # Bản tin LWT hoặc báo ngắt kết nối: lùi last_seen_at quá ngưỡng offline và phát cảnh báo DEVICE_OFFLINE
+            device.last_seen_at = now - timedelta(seconds=DEVICE_OFFLINE_THRESHOLD_SECONDS + 5)
             device.save(update_fields=['last_seen_at'])
             active_offline = Alert.objects.filter(
                 device=device, alert_type='DEVICE_OFFLINE', status__in=['OPEN', 'ACKNOWLEDGED']
@@ -443,12 +476,57 @@ class Command(BaseCommand):
                 device=device, alert_type='DEVICE_OFFLINE', status__in=['OPEN', 'ACKNOWLEDGED']
             ).update(status='RESOLVED', resolved_at=now)
 
+    def _can_retry_sent_command(self, command: CommandModel) -> tuple[bool, str | None]:
+        """Kiểm tra lại trạng thái thiết bị, phiên và quyền OPERATE trước khi retry ở mốc 3s/6s."""
+        if command.status != 'SENT':
+            return False, 'COMMAND_NOT_SENT'
+        if command.device.status != 'ACTIVE':
+            return False, 'DEVICE_NOT_ACTIVE'
+        if (timezone.now() - command.created_at).total_seconds() > 60:
+            return False, 'COMMAND_EXPIRED'
+        if command.payload.get('_source') == 'APPLIED_CONFIG_RESYNC':
+            config = DeviceConfig.objects.filter(
+                device_id=command.device_id, version=command.payload.get('config_version'), applied=True,
+            ).first()
+            return (True, None) if config and config.config_data == command.payload.get('config') else (False, 'CONFIG_MISMATCH')
+        if command.actor_id is None:
+            return True, None
+        sid = command.payload.get('_auth_session_id')
+        try:
+            session = AuthSession.objects.filter(pk=sid, user_id=command.actor_id).first() if sid else None
+        except (ValidationError, ValueError, TypeError):
+            session = None
+        if not session:
+            return False, 'SESSION_INVALID'
+        valid, session, reason = verify_auth_session(session.session_key, user=session.user)
+        if not valid:
+            return False, reason
+        if session.user.must_change_password:
+            return False, 'MUST_CHANGE_PASSWORD'
+        try:
+            require_device_permission(session.user, command.device, 'OPERATE')
+        except PermissionDenied:
+            return False, 'DEVICE_PERMISSION_REVOKED'
+        return True, None
+
     def sweep_pending_outbox(self, client):
-        """Kiểm lại quyền ngay trước publish; dùng chung dispatcher với API."""
+        """
+        Quét Outbox:
+        1. Gửi các bản tin PENDING qua dispatcher dùng chung (kiểm quyền + stripping key '_').
+        2. Retry ở mốc 3s và 6s (tối đa 2 lần retry, giữ nguyên correlation_id) cho lệnh SENT chưa ACK.
+        """
         def publish(device_id, payload):
-            info = client.publish(f'cabinet/v3/devices/{device_id}/commands', json.dumps(payload), qos=1)
-            info.wait_for_publish(timeout=3)
-            return info.rc == mqtt.MQTT_ERR_SUCCESS and info.is_published()
+            payload_str = json.dumps(payload, ensure_ascii=False)
+            info = client.publish(f'cabinet/v3/devices/{device_id}/commands', payload_str, qos=1)
+            rc = getattr(info, 'rc', mqtt.MQTT_ERR_SUCCESS)
+            if rc != mqtt.MQTT_ERR_SUCCESS:
+                return False
+            if hasattr(info, 'wait_for_publish'):
+                info.wait_for_publish(timeout=3)
+            if hasattr(info, 'is_published') and callable(info.is_published) and not info.is_published():
+                return False
+            client.publish(f'cabinet/{device_id}/command', payload_str, qos=1)
+            return True
 
         pending_ids = list(OutboxMessage.objects.filter(status='PENDING').values_list('pk', flat=True)[:10])
         for outbox_id in pending_ids:
@@ -456,6 +534,46 @@ class Command(BaseCommand):
                 dispatch_outbox(outbox_id, publish)
             except Exception as e:
                 logger.warning('Chưa gửi được outbox %s (%s)', outbox_id, type(e).__name__)
+
+        now = timezone.now()
+        retry_ids = list(
+            OutboxMessage.objects.filter(
+                status='PUBLISHED',
+                command__status='SENT',
+                retry_count__lt=3,
+            ).values_list('pk', flat=True)[:10]
+        )
+        for outbox_id in retry_ids:
+            try:
+                with transaction.atomic():
+                    cmd_id = OutboxMessage.objects.values_list('command_id', flat=True).get(pk=outbox_id)
+                    cmd = CommandModel.objects.select_for_update(of=('self',)).select_related('device').get(pk=cmd_id)
+                    msg = OutboxMessage.objects.select_for_update().get(pk=outbox_id)
+                    if msg.status != 'PUBLISHED' or cmd.status != 'SENT' or not cmd.sent_at or msg.retry_count >= 3:
+                        continue
+                    elapsed = (now - cmd.sent_at).total_seconds()
+                    required_elapsed = 3 if msg.retry_count <= 1 else 6
+                    if not (required_elapsed <= elapsed < 15):
+                        continue
+                    allowed, reason = self._can_retry_sent_command(cmd)
+                    if not allowed:
+                        msg.status, msg.last_error = 'FAILED', reason or 'RETRY_DENIED'
+                        msg.save(update_fields=['status', 'last_error'])
+                        cmd.status, cmd.error_message = 'CANCELLED', reason or 'RETRY_DENIED'
+                        cmd.save(update_fields=['status', 'error_message'])
+                        continue
+                    clean_payload = {k: v for k, v in msg.payload.items() if not k.startswith('_')}
+                    sent = publish(cmd.device_id, clean_payload)
+                    msg.retry_count = max(msg.retry_count, 1) + 1
+                    if sent:
+                        msg.published_at = now
+                        msg.last_error = ''
+                        msg.save(update_fields=['retry_count', 'published_at', 'last_error'])
+                    else:
+                        msg.last_error = 'BROKER_UNAVAILABLE'
+                        msg.save(update_fields=['retry_count', 'last_error'])
+            except Exception as e:
+                logger.warning('Lỗi retry outbox %s (%s)', outbox_id, type(e).__name__)
 
     def check_command_timeouts(self):
         """Đánh dấu TIMEOUT cho các lệnh đã gửi quá 15 giây mà không nhận được ACK từ phần cứng"""
@@ -473,8 +591,8 @@ class Command(BaseCommand):
             ))
 
     def check_offline_devices(self):
-        """Kiểm tra và kích hoạt cảnh báo DEVICE_OFFLINE nếu tủ không gửi viễn trắc quá 30 giây"""
-        offline_threshold = timezone.now() - timedelta(seconds=30)
+        """Kiểm tra và kích hoạt cảnh báo DEVICE_OFFLINE nếu tủ không gửi viễn trắc quá 45 giây"""
+        offline_threshold = timezone.now() - timedelta(seconds=DEVICE_OFFLINE_THRESHOLD_SECONDS)
         offline_devices = Device.objects.filter(status='ACTIVE', last_seen_at__lt=offline_threshold)
         for dev in offline_devices:
             active_offline = Alert.objects.filter(
@@ -486,7 +604,7 @@ class Command(BaseCommand):
                     alert_type='DEVICE_OFFLINE',
                     severity='WARNING',
                     status='OPEN',
-                    message=f"Tủ mạng {dev.id} đã mất kết nối viễn trắc quá 30 giây."
+                    message=f"Tủ mạng {dev.id} đã mất kết nối viễn trắc quá {DEVICE_OFFLINE_THRESHOLD_SECONDS} giây."
                 )
 
         # Tự động giải tỏa cảnh báo DEVICE_OFFLINE khi thiết bị gửi dữ liệu trở lại

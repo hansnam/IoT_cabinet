@@ -4,7 +4,7 @@ services:
     container_name: iot_cabinet_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: iot_cabinet
+      POSTGRES_DB: iot_cabinet_django
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres123
     ports:
@@ -12,7 +12,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d iot_cabinet"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 5

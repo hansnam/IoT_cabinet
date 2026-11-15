@@ -13,8 +13,8 @@ class Telemetry(models.Model):
         verbose_name="Thiết bị tủ mạng"
     )
     seq = models.BigIntegerField(default=0, verbose_name="Số thứ tự gói tin (Sequence)")
-    temperature = models.FloatField(verbose_name="Nhiệt độ (°C)")
-    humidity = models.FloatField(verbose_name="Độ ẩm không khí (%)")
+    temperature = models.FloatField(null=True, blank=True, verbose_name="Nhiệt độ (°C)")
+    humidity = models.FloatField(null=True, blank=True, verbose_name="Độ ẩm không khí (%)")
     fan_status = models.CharField(
         max_length=16,
         default='OFF',
