@@ -715,8 +715,11 @@ function App({ sessionUser, onSessionEnded }) {
                 <option value="all">Tất cả trạng thái</option>
                 <option value="PENDING">PENDING (Chờ gửi)</option>
                 <option value="SENT">SENT (Đã phát tới Broker)</option>
-                <option value="ACKED">ACKED (Thiết bị đã xác nhận)</option>
-                <option value="FAILED">FAILED (Thất bại / Hết hạn)</option>
+                <option value="APPLIED">APPLIED (Thiết bị đã thực thi)</option>
+                <option value="APPLIED_LATE">APPLIED_LATE (Thực thi muộn)</option>
+                <option value="TIMEOUT">TIMEOUT (Hết hạn chờ ACK)</option>
+                <option value="FAILED">FAILED (Thất bại)</option>
+                <option value="CANCELLED">CANCELLED (Đã hủy)</option>
               </select>
             </div>
 

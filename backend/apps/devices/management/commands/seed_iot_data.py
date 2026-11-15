@@ -18,6 +18,24 @@ class Command(BaseCommand):
 
         now = timezone.now()
 
+        default_v14_config = {
+            'profile': 'CONTROLLER',
+            'fan_binding_id': None,
+            'fan_on_c': 30.0,
+            'fan_off_c': 28.0,
+            'temp_alert_c': 35.0,
+            'humidity_alert_pct': 80.0,
+            'temp_clear_margin_c': 1.0,
+            'humidity_clear_margin_pct': 3.0,
+            'telemetry_interval_ms': 5000,
+            'manual_timeout_s': 60,
+            'max_temp': 35.0,
+            'max_hum': 80.0,
+            'auto_cool': True,
+        }
+        cab1_config = {**default_v14_config, 'humidity_alert_pct': 75.0, 'max_hum': 75.0}
+        cab2_config = {**default_v14_config, 'temp_alert_c': 36.0, 'max_temp': 36.0}
+
         # 1. Tạo thiết bị tủ mạng khớp với firmware ESP32 (cabinet-001) và 2 tủ mẫu
         cab_fw, created_fw = Device.objects.get_or_create(
             id='cabinet-001',
@@ -28,8 +46,8 @@ class Command(BaseCommand):
                 'hardware_version': 'esp32-wroom32-dht22-relay-controller-v1',
                 'firmware_version': '1.2.0',
                 'ip_address': '192.168.1.100',
-                'desired_config': {'max_temp': 35.0, 'max_hum': 80.0, 'fan_on_c': 30.0, 'fan_off_c': 28.0, 'auto_cool': True},
-                'applied_config': {'max_temp': 35.0, 'max_hum': 80.0, 'fan_on_c': 30.0, 'fan_off_c': 28.0, 'auto_cool': True},
+                'desired_config': default_v14_config,
+                'applied_config': default_v14_config,
                 'last_seen_at': now,
                 'latest_temperature': 29.5,
                 'latest_humidity': 64.0,
@@ -51,8 +69,8 @@ class Command(BaseCommand):
                 'firmware_version': 'v1.4.0',
                 'ip_address': '192.168.1.150',
                 'mac_address': '24:6F:28:B1:A2:30',
-                'desired_config': {'max_temp': 35.0, 'max_hum': 75.0, 'auto_cool': True},
-                'applied_config': {'max_temp': 35.0, 'max_hum': 75.0, 'auto_cool': True},
+                'desired_config': cab1_config,
+                'applied_config': cab1_config,
                 'last_seen_at': now,
                 'latest_temperature': 31.5,
                 'latest_humidity': 68.2,
@@ -75,8 +93,8 @@ class Command(BaseCommand):
                 'hardware_version': 'SIMULATOR-X86',
                 'firmware_version': 'v1.4.0',
                 'ip_address': '192.168.1.151',
-                'desired_config': {'max_temp': 36.0, 'max_hum': 80.0, 'auto_cool': True},
-                'applied_config': {'max_temp': 36.0, 'max_hum': 80.0, 'auto_cool': True},
+                'desired_config': cab2_config,
+                'applied_config': cab2_config,
                 'last_seen_at': now - timedelta(minutes=2),
                 'latest_temperature': 29.8,
                 'latest_humidity': 62.0,
@@ -89,15 +107,16 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS("  + Tạo mới thiết bị: CABINET-02 (SIMULATED)"))
 
         # 2. Cấu hình ban đầu
-        DeviceConfig.objects.get_or_create(
-            device=cab1,
-            version=1,
-            defaults={
-                'config_data': cab1.desired_config,
-                'applied': True,
-                'applied_at': now,
-            }
-        )
+        for dev in (cab_fw, cab1, cab2):
+            DeviceConfig.objects.get_or_create(
+                device=dev,
+                version=1,
+                defaults={
+                    'config_data': dev.desired_config,
+                    'applied': True,
+                    'applied_at': now,
+                }
+            )
 
         # 3. Phân quyền DeviceAccess cho các user sẵn có trong hệ thống
         users = User.objects.all()
