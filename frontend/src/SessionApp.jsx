@@ -81,6 +81,7 @@ export default function SessionApp() {
     const data = Object.fromEntries(new FormData(form))
     perform(async () => {
       await api('/auth/login/', { method: 'POST', data })
+      form.reset()
       await loadProfile()
     })
   }
@@ -109,6 +110,7 @@ export default function SessionApp() {
           new_password: data.new_password,
         },
       })
+      form.reset()
       setUser(null)
       setMessage({
         type: 'success',
@@ -132,7 +134,7 @@ export default function SessionApp() {
   // 2. Màn hình đăng nhập khi chưa xác thực
   if (!user) {
     return (
-      <main className="session-screen">
+      <main key="login-screen" className="session-screen">
         <div className="session-card">
           <div className="session-header">
             <div className="session-brand-badge">IC</div>
@@ -146,7 +148,7 @@ export default function SessionApp() {
             </div>
           )}
 
-          <form onSubmit={submitLogin} className="session-form">
+          <form key="login-form" onSubmit={submitLogin} className="session-form">
             <div className="session-field">
               <label htmlFor="login-username">Tên đăng nhập</label>
               <input
@@ -184,7 +186,7 @@ export default function SessionApp() {
   // 3. Màn hình đổi mật khẩu bắt buộc
   if (user.must_change_password) {
     return (
-      <main className="session-screen">
+      <main key="mandatory-password-screen" className="session-screen">
         <div className="session-card">
           <div className="session-header">
             <div className="session-brand-badge" style={{ backgroundColor: 'var(--warning)' }}>!</div>
@@ -198,7 +200,7 @@ export default function SessionApp() {
             </div>
           )}
 
-          <form onSubmit={submitMandatoryPassword} className="session-form">
+          <form key="mandatory-password-form" onSubmit={submitMandatoryPassword} className="session-form">
             <div className="session-field">
               <label htmlFor="mandatory-old-password">Mật khẩu hiện tại</label>
               <input

@@ -9,7 +9,7 @@ import paho.mqtt.client as mqtt
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.management.base import BaseCommand
-from django.db import close_old_connections, transaction
+from django.db import IntegrityError, close_old_connections, transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -276,6 +276,18 @@ class Command(BaseCommand):
         else:
             uptime = int(data.get('uptime', 0))
         seq = int(data.get('seq', 0))
+        raw_msg_id = data.get('msg_id')
+        if raw_msg_id is not None and str(raw_msg_id).strip():
+            msg_id = str(raw_msg_id).strip()[:128]
+        elif data.get('boot_id') and seq > 0:
+            msg_id = f"{str(data['boot_id']).strip()}:{seq}"[:128]
+        else:
+            msg_id = None
+
+        if msg_id and Telemetry.objects.filter(device=device, msg_id=msg_id).exists():
+            logger.info("[MQTT Worker] Bỏ qua bản tin telemetry trùng lặp: device=%s, msg_id=%s", device_id, msg_id)
+            return
+
         now = timezone.now()
 
         measured_at = now
@@ -287,41 +299,45 @@ class Command(BaseCommand):
                     parsed_dt = timezone.make_aware(parsed_dt, dt_timezone.utc)
                 measured_at = parsed_dt
 
-        with transaction.atomic():
-            # Cập nhật bản chiếu số đo mới nhất (projection)
-            device.last_seen_at = now
-            if sensor_ok:
-                if temperature is not None:
-                    device.latest_temperature = temperature
-                if humidity is not None:
-                    device.latest_humidity = humidity
-            else:
-                device.latest_temperature = None
-                device.latest_humidity = None
-            device.latest_fan_status = fan_status
-            device.latest_door_status = door_status
-            device.latest_mode = mode
-            device.save(update_fields=[
-                'last_seen_at', 'latest_temperature', 'latest_humidity',
-                'latest_fan_status', 'latest_door_status', 'latest_mode', 'updated_at'
-            ])
+        try:
+            with transaction.atomic():
+                # Lưu bản ghi trước để tận dụng UniqueConstraint(device, msg_id) chống race condition
+                Telemetry.objects.create(
+                    device=device,
+                    msg_id=msg_id,
+                    seq=seq,
+                    temperature=temperature,
+                    humidity=humidity,
+                    fan_status=fan_status,
+                    door_status=door_status,
+                    mode=mode,
+                    uptime=uptime,
+                    measured_at=measured_at,
+                    raw_data=data
+                )
 
-            # Lưu vào bảng dữ liệu chuỗi thời gian Telemetry
-            Telemetry.objects.create(
-                device=device,
-                seq=seq,
-                temperature=temperature,
-                humidity=humidity,
-                fan_status=fan_status,
-                door_status=door_status,
-                mode=mode,
-                uptime=uptime,
-                measured_at=measured_at,
-                raw_data=data
-            )
+                # Cập nhật bản chiếu số đo mới nhất (projection)
+                device.last_seen_at = now
+                if sensor_ok:
+                    if temperature is not None:
+                        device.latest_temperature = temperature
+                    if humidity is not None:
+                        device.latest_humidity = humidity
+                else:
+                    device.latest_temperature = None
+                    device.latest_humidity = None
+                device.latest_fan_status = fan_status
+                device.latest_door_status = door_status
+                device.latest_mode = mode
+                device.save(update_fields=[
+                    'last_seen_at', 'latest_temperature', 'latest_humidity',
+                    'latest_fan_status', 'latest_door_status', 'latest_mode', 'updated_at'
+                ])
 
-            # Đánh giá cảnh báo tự động
-            self.evaluate_alerts(device, temperature, humidity, fan_status, door_status, sensor_ok)
+                # Đánh giá cảnh báo tự động
+                self.evaluate_alerts(device, temperature, humidity, fan_status, door_status, sensor_ok)
+        except IntegrityError:
+            logger.info("[MQTT Worker] Bỏ qua bản tin telemetry trùng lặp (DB constraint): device=%s, msg_id=%s", device_id, msg_id)
 
     def evaluate_alerts(self, device: Device, temp, hum, fan: str, door: str, sensor_ok: bool = True):
         """

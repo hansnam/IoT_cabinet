@@ -235,7 +235,7 @@ CSRF_TRUSTED_ORIGINS = [
 MQTT_BROKER_HOST = os.getenv('MQTT_BROKER_HOST', '127.0.0.1')
 MQTT_BROKER_PORT = int(os.getenv('MQTT_BROKER_PORT', '1883'))
 MQTT_KEEPALIVE = int(os.getenv('MQTT_KEEPALIVE', '60'))
-MQTT_USERNAME = os.getenv('MQTT_USERNAME', 'django_worker')
+MQTT_USERNAME = os.getenv('MQTT_USERNAME', '')
 MQTT_PASSWORD = os.getenv('MQTT_PASSWORD', '')
 
 

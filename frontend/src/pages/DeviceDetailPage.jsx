@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
+import {
   api,
   asList,
   translateConnectionState,
@@ -431,6 +441,27 @@ export default function DeviceDetailPage({ user, showToast }) {
   const isAuto = mode === 'AUTO'
   const isManual = mode === 'MANUAL'
   const commandBusy = actionLoading || Boolean(pendingCommandId)
+
+  // Dữ liệu biểu đồ xu hướng nhiệt độ & độ ẩm (sắp xếp từ cũ -> mới để đọc trái sang phải)
+  const chartData = [...telemetry]
+    .reverse()
+    .map((item) => {
+      const ts = item.measured_at || item.received_at
+      const tempVal = item.temperature ?? item.temperature_c
+      const humVal = item.humidity ?? item.humidity_pct
+      return {
+        timeLabel: ts
+          ? new Date(ts).toLocaleTimeString('vi-VN', {
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+            })
+          : '--',
+        temperature: tempVal !== null && tempVal !== undefined ? Number(tempVal) : null,
+        humidity: humVal !== null && humVal !== undefined ? Number(humVal) : null,
+      }
+    })
+    .filter((pt) => pt.temperature !== null || pt.humidity !== null)
 
   return (
     <div className="device-detail-page">
@@ -884,6 +915,60 @@ export default function DeviceDetailPage({ user, showToast }) {
               Lọc số đo
             </button>
           </div>
+
+          {/* Biểu đồ xu hướng nhiệt độ & độ ẩm (Recharts) */}
+          {chartData.length > 0 && (
+            <div className="telemetry-chart-wrap" aria-label="Biểu đồ xu hướng nhiệt độ và độ ẩm">
+              <div className="telemetry-chart-header">
+                <strong>Biểu đồ xu hướng nhiệt độ &amp; độ ẩm</strong>
+                <span>{chartData.length} điểm đo gần nhất</span>
+              </div>
+              <div style={{ width: '100%', height: 260 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData} margin={{ top: 8, right: 16, left: -8, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="timeLabel" tick={{ fontSize: 11, fill: '#64748b' }} minTickGap={24} />
+                    <YAxis
+                      yAxisId="temp"
+                      tick={{ fontSize: 11, fill: '#ea580c' }}
+                      unit="°C"
+                      width={46}
+                    />
+                    <YAxis
+                      yAxisId="hum"
+                      orientation="right"
+                      domain={[0, 100]}
+                      tick={{ fontSize: 11, fill: '#0284c7' }}
+                      unit="%"
+                      width={46}
+                    />
+                    <Tooltip />
+                    <Legend />
+                    <Line
+                      yAxisId="temp"
+                      type="monotone"
+                      dataKey="temperature"
+                      name="Nhiệt độ (°C)"
+                      stroke="#ea580c"
+                      strokeWidth={2}
+                      dot={chartData.length <= 20}
+                      connectNulls
+                    />
+                    <Line
+                      yAxisId="hum"
+                      type="monotone"
+                      dataKey="humidity"
+                      name="Độ ẩm (%)"
+                      stroke="#0284c7"
+                      strokeWidth={2}
+                      dot={chartData.length <= 20}
+                      connectNulls
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
 
           <div className="table-wrap">
             <table>
