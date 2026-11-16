@@ -1386,3 +1386,26 @@ td small {
   font-size: 14px;
   line-height: 1.5;
 }
+
+/* Biểu đồ xu hướng viễn trắc (Recharts) */
+.telemetry-chart-wrap {
+  margin: 4px 0 20px;
+  padding: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-subtle);
+}
+
+.telemetry-chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--text-main);
+}
+
+.telemetry-chart-header span {
+  font-size: 12px;
+  color: var(--text-muted);
+}

@@ -14,10 +14,10 @@
 #endif
 
 #ifndef MQTT_USERNAME
-  #define MQTT_USERNAME "cabinet-001"
+  #define MQTT_USERNAME "YOUR_MQTT_USERNAME"
 #endif
 #ifndef MQTT_PASSWORD
-  #define MQTT_PASSWORD "Cabinet001@Secret2026"
+  #define MQTT_PASSWORD "YOUR_PROVISIONED_SECRET"
 #endif
 
 // Khởi tạo đối tượng phần cứng & dịch vụ

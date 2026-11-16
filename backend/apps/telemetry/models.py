@@ -12,6 +12,12 @@ class Telemetry(models.Model):
         related_name='telemetries',
         verbose_name="Thiết bị tủ mạng"
     )
+    msg_id = models.CharField(
+        max_length=128,
+        null=True,
+        blank=True,
+        verbose_name="Mã chống trùng bản tin (Idempotency)"
+    )
     seq = models.BigIntegerField(default=0, verbose_name="Số thứ tự gói tin (Sequence)")
     temperature = models.FloatField(null=True, blank=True, verbose_name="Nhiệt độ (°C)")
     humidity = models.FloatField(null=True, blank=True, verbose_name="Độ ẩm không khí (%)")
@@ -44,6 +50,13 @@ class Telemetry(models.Model):
         ordering = ['-measured_at']
         indexes = [
             models.Index(fields=['device', '-measured_at'], name='telemetry_dev_time_idx'),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['device', 'msg_id'],
+                condition=models.Q(msg_id__isnull=False),
+                name='unique_device_telemetry_msg_id',
+            ),
         ]
 
     def __str__(self):

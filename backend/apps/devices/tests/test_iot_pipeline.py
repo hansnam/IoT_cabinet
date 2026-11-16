@@ -767,3 +767,34 @@ class MQTTWorkerProcessingTestCase(TestCase):
                 ok = sync_device_mqtt_access('cabinet-001', 'LOCKED')
                 self.assertTrue(ok)
                 mock_broker_cmd.assert_called_once_with('disableClient', username='cabinet-001')
+
+    def test_process_telemetry_deduplicates_msg_id_and_boot_seq(self):
+        """Gói tin telemetry trùng msg_id hoặc trùng (boot_id, seq) chỉ được lưu 1 lần"""
+        payload_with_msg_id = {
+            'msg_id': 'cabinet-msg-001',
+            'temperature_c': 30.2,
+            'humidity_pct': 61.5,
+            'fan_output': False,
+            'seq': 10,
+        }
+        self.worker.process_telemetry(self.device.id, payload_with_msg_id)
+        self.worker.process_telemetry(self.device.id, payload_with_msg_id)
+        self.assertEqual(Telemetry.objects.filter(device=self.device, msg_id='cabinet-msg-001').count(), 1)
+
+        # Gói tin từ firmware ESP32 có (boot_id, seq) -> tự tạo khóa chống trùng boot_id:seq
+        esp32_payload = {
+            'boot_id': 'boot-uuid-1234',
+            'seq': 5,
+            'temperature_c': 31.0,
+            'humidity_pct': 63.0,
+            'fan_output': True,
+        }
+        self.worker.process_telemetry(self.device.id, esp32_payload)
+        self.worker.process_telemetry(self.device.id, esp32_payload)
+        self.assertEqual(Telemetry.objects.filter(device=self.device, msg_id='boot-uuid-1234:5').count(), 1)
+
+        # Payload legacy không có msg_id và không có boot_id vẫn lưu bình thường (msg_id=None)
+        legacy_payload = {'temperature': 29.0, 'humidity': 59.0}
+        self.worker.process_telemetry(self.device.id, legacy_payload)
+        self.worker.process_telemetry(self.device.id, legacy_payload)
+        self.assertEqual(Telemetry.objects.filter(device=self.device, msg_id__isnull=True).count(), 2)
