@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, asList } from '../api.js'
+import Pagination from '../components/Pagination.jsx'
 
 /**
  * Trang Quản lý Cảnh báo hệ thống (AlertsPage)
@@ -17,6 +18,8 @@ export default function AlertsPage({ showToast }) {
   const [search, setSearch] = useState('')
   const [severity, setSeverity] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
   const [actionLoading, setActionLoading] = useState(null)
 
   const loadAlertsData = useCallback(async () => {
@@ -96,6 +99,9 @@ export default function AlertsPage({ showToast }) {
     return matchesSearch && matchesSeverity && matchesStatus
   })
 
+  // Dữ liệu phân trang
+  const paginatedAlerts = filteredAlerts.slice((page - 1) * pageSize, page * pageSize)
+
   const format = (val) => (val === null || val === undefined || val === '' ? '--' : val)
   const formatDate = (val) => (val ? new Date(val).toLocaleString('vi-VN') : '--')
 
@@ -115,14 +121,20 @@ export default function AlertsPage({ showToast }) {
           <input
             type="text"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value)
+              setPage(1)
+            }}
             placeholder="Tìm theo nội dung cảnh báo..."
             aria-label="Tìm kiếm nội dung cảnh báo"
           />
 
           <select
             value={severity}
-            onChange={(e) => setSeverity(e.target.value)}
+            onChange={(e) => {
+              setSeverity(e.target.value)
+              setPage(1)
+            }}
             aria-label="Lọc theo mức độ nghiêm trọng"
           >
             <option value="all">Tất cả mức độ</option>
@@ -134,7 +146,10 @@ export default function AlertsPage({ showToast }) {
 
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(e) => {
+              setStatusFilter(e.target.value)
+              setPage(1)
+            }}
             aria-label="Lọc theo trạng thái xử lý"
           >
             <option value="all">Tất cả trạng thái</option>
@@ -158,7 +173,7 @@ export default function AlertsPage({ showToast }) {
               </tr>
             </thead>
             <tbody>
-              {filteredAlerts.map((alert, index) => {
+              {paginatedAlerts.map((alert, index) => {
                 const alertId = alert.id || index
                 const devId = alert.device_id || alert.device
                 const isLoading = actionLoading === `alert-${alertId}`
@@ -268,6 +283,15 @@ export default function AlertsPage({ showToast }) {
             </tbody>
           </table>
         </div>
+
+        {/* Phân trang danh sách cảnh báo */}
+        <Pagination
+          currentPage={page}
+          totalItems={filteredAlerts.length}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+        />
       </section>
     </div>
   )

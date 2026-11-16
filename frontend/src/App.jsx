@@ -122,7 +122,7 @@ function App({ sessionUser, onSessionEnded, onUserUpdated, onPasswordChangedSucc
       <Routes>
         <Route path="/" element={<OverviewPage showToast={showToast} />} />
         <Route path="/devices" element={<DevicesPage user={user} showToast={showToast} />} />
-        <Route path="/devices/:id" element={<DeviceDetailPage showToast={showToast} />} />
+        <Route path="/devices/:id" element={<DeviceDetailPage user={user} showToast={showToast} />} />
         <Route path="/alerts" element={<AlertsPage showToast={showToast} />} />
         <Route path="/commands" element={<CommandsPage showToast={showToast} />} />
         <Route

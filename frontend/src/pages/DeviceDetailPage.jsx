@@ -6,6 +6,7 @@ import {
   translateConnectionState,
   translateCommandStatus,
 } from '../api.js'
+import Pagination from '../components/Pagination.jsx'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 
@@ -18,15 +19,28 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1'
  * 3. Cấu hình ngưỡng cảnh báo & quạt (Form tiếng Việt, kiểm tra hysteresis)
  * 4. Lịch sử số đo viễn trắc riêng của tủ & Xuất CSV an toàn
  */
-export default function DeviceDetailPage({ showToast }) {
+export default function DeviceDetailPage({ user, showToast }) {
   const { id } = useParams()
   const initializedDevice = useRef(null)
   const [device, setDevice] = useState(null)
   const [telemetry, setTelemetry] = useState([])
+  const [telemetryPage, setTelemetryPage] = useState(1)
+  const [telemetryPageSize, setTelemetryPageSize] = useState(15)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
   const [commandFeedback, setCommandFeedback] = useState(null)
+
+  // Quản lý MQTT tủ mạng (UI-06)
+  const [mqttMeta, setMqttMeta] = useState(null)
+  const [mqttLoading, setMqttLoading] = useState(false)
+  const [mqttError, setMqttError] = useState('')
+  const [showProvisionModal, setShowProvisionModal] = useState(false)
+  const [showResetModal, setShowResetModal] = useState(false)
+  const [showSecretModal, setShowSecretModal] = useState(false)
+  const [secretResult, setSecretResult] = useState(null)
+  const [customPassword, setCustomPassword] = useState('')
+  const [mqttBusy, setMqttBusy] = useState(false)
 
   const [pendingCommandId, setPendingCommandId] = useState(null)
   useEffect(() => {
@@ -118,6 +132,116 @@ export default function DeviceDetailPage({ showToast }) {
       clearTimeout(timer)
     }
   }, [loadDeviceDetail])
+
+  // Tải thông tin tài khoản MQTT từ Broker
+  const loadMqttMeta = useCallback(async () => {
+    if (!id || user?.role !== 'ADMIN') return
+    setMqttLoading(true)
+    try {
+      const res = await api(`/devices/${encodeURIComponent(id)}/mqtt/`)
+      setMqttMeta(res)
+      setMqttError('')
+    } catch (err) {
+      setMqttError(err.message || 'Không thể tải thông tin MQTT.')
+    } finally {
+      setMqttLoading(false)
+    }
+  }, [id, user?.role])
+
+  useEffect(() => {
+    let active = true
+    const timer = setTimeout(() => {
+      if (active && activeTab === 'mqtt') {
+        loadMqttMeta()
+      }
+    }, 0)
+    return () => {
+      active = false
+      clearTimeout(timer)
+    }
+  }, [activeTab, loadMqttMeta])
+
+  // Khởi tạo tài khoản MQTT (Provision)
+  const handleProvisionMqtt = async (e) => {
+    e.preventDefault()
+    setMqttBusy(true)
+    try {
+      const payload = customPassword ? { password: customPassword } : {}
+      const res = await api(`/devices/${encodeURIComponent(id)}/mqtt/provision/`, {
+        method: 'POST',
+        data: payload,
+      })
+      setSecretResult(res)
+      setShowProvisionModal(false)
+      setShowSecretModal(true)
+      showToast?.('Khởi tạo tài khoản MQTT thành công!', 'success')
+      await loadMqttMeta()
+      await loadDeviceDetail()
+    } catch (err) {
+      showToast?.(err.message || 'Lỗi khi khởi tạo tài khoản MQTT.', 'error')
+    } finally {
+      setMqttBusy(false)
+    }
+  }
+
+  // Kích hoạt tài khoản MQTT (Enable)
+  const handleEnableMqtt = async () => {
+    setMqttBusy(true)
+    try {
+      await api(`/devices/${encodeURIComponent(id)}/mqtt/enable/`, { method: 'POST' })
+      showToast?.('Đã kích hoạt tài khoản MQTT trên Broker!', 'success')
+      await loadMqttMeta()
+      await loadDeviceDetail()
+    } catch (err) {
+      showToast?.(err.message || 'Lỗi khi kích hoạt tài khoản MQTT.', 'error')
+    } finally {
+      setMqttBusy(false)
+    }
+  }
+
+  // Vô hiệu hóa tài khoản MQTT (Disable)
+  const handleDisableMqtt = async () => {
+    if (
+      !window.confirm(
+        `Bạn có chắc chắn muốn vô hiệu hóa tài khoản MQTT của tủ ${id} trên Broker? Tủ sẽ bị ngắt kết nối thật.`
+      )
+    ) {
+      return
+    }
+    setMqttBusy(true)
+    try {
+      await api(`/devices/${encodeURIComponent(id)}/mqtt/disable/`, { method: 'POST' })
+      showToast?.('Đã vô hiệu hóa tài khoản MQTT trên Broker!', 'success')
+      await loadMqttMeta()
+      await loadDeviceDetail()
+    } catch (err) {
+      showToast?.(err.message || 'Lỗi khi vô hiệu hóa tài khoản MQTT.', 'error')
+    } finally {
+      setMqttBusy(false)
+    }
+  }
+
+  // Đặt lại mật khẩu MQTT
+  const handleResetPasswordMqtt = async (e) => {
+    e.preventDefault()
+    setMqttBusy(true)
+    try {
+      const payload = customPassword ? { password: customPassword } : {}
+      const res = await api(`/devices/${encodeURIComponent(id)}/mqtt/reset-password/`, {
+        method: 'POST',
+        data: payload,
+      })
+      setSecretResult(res)
+      setShowResetModal(false)
+      setShowSecretModal(true)
+      showToast?.('Đã đặt lại mật khẩu MQTT thành công!', 'success')
+      await loadMqttMeta()
+    } catch (err) {
+      showToast?.(err.message || 'Lỗi khi đặt lại mật khẩu MQTT.', 'error')
+    } finally {
+      setMqttBusy(false)
+    }
+  }
 
   // Gửi lệnh điều khiển quạt hoặc chuyển chế độ
   async function handleSendCommand(payload, actionName) {
@@ -412,6 +536,17 @@ export default function DeviceDetailPage({ showToast }) {
         >
           📈 Lịch sử số đo ({telemetry.length})
         </button>
+        {user?.role === 'ADMIN' && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'mqtt'}
+            className={`tab-btn ${activeTab === 'mqtt' ? 'active' : ''}`}
+            onClick={() => setActiveTab('mqtt')}
+          >
+            📡 Tài khoản MQTT Broker
+          </button>
+        )}
       </div>
 
       {/* TAB 1: ĐIỀU KHIỂN QUẠT & CHẾ ĐỘ */}
@@ -740,6 +875,7 @@ export default function DeviceDetailPage({ showToast }) {
                   if (fromTime) params.set('from_time', new Date(fromTime).toISOString())
                   if (toTime) params.set('to_time', new Date(toTime).toISOString())
                   setTelemetry(asList(await api(`/telemetry/?${params}`)))
+                  setTelemetryPage(1)
                 } catch (error) { showToast?.(error.message, 'error') }
               }}
               title="Tải lại danh sách số đo"
@@ -760,7 +896,9 @@ export default function DeviceDetailPage({ showToast }) {
                 </tr>
               </thead>
               <tbody>
-                {telemetry.map((item, idx) => {
+                {telemetry
+                  .slice((telemetryPage - 1) * telemetryPageSize, telemetryPage * telemetryPageSize)
+                  .map((item, idx) => {
                   const tVal = item.temperature ?? item.temperature_c
                   const hVal = item.humidity ?? item.humidity_pct
                   const fVal = item.fan_status !== undefined ? item.fan_status : item.fan_output
@@ -801,7 +939,343 @@ export default function DeviceDetailPage({ showToast }) {
               </tbody>
             </table>
           </div>
+
+          {/* Phân trang lịch sử số đo */}
+          <Pagination
+            currentPage={telemetryPage}
+            totalItems={telemetry.length}
+            pageSize={telemetryPageSize}
+            onPageChange={setTelemetryPage}
+            onPageSizeChange={setTelemetryPageSize}
+            pageSizeOptions={[10, 15, 30, 50]}
+          />
         </section>
+      )}
+
+      {/* TAB 4: QUẢN TRỊ TÀI KHOẢN MQTT CỦA TỦ (UI-06) */}
+      {activeTab === 'mqtt' && user?.role === 'ADMIN' && (
+        <section className="card mqtt-tab-card" aria-label="Quản lý tài khoản kết nối MQTT của tủ">
+          <div className="card-heading">
+            <div>
+              <h2>Tài khoản kết nối Mosquitto MQTT của tủ {device?.name || id}</h2>
+              <p>Quản lý định danh kết nối, phân quyền topic (ACL) và khóa/mở tài khoản trên Broker</p>
+            </div>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              onClick={loadMqttMeta}
+              disabled={mqttLoading}
+            >
+              🔄 Tải lại trạng thái
+            </button>
+          </div>
+
+          <div className="notice-box info" style={{ marginBottom: '20px' }}>
+            <span>ℹ️</span>
+            <span>
+              <strong>Phân biệt khái niệm:</strong> Đây là tài khoản MQTT để vi điều khiển ESP32 trong tủ mạng kết nối tới Mosquitto Broker, khác biệt hoàn toàn với tài khoản đăng nhập web của người dùng.
+            </span>
+          </div>
+
+          {mqttError && (
+            <div className="notice-box error" role="alert" style={{ marginBottom: '20px' }}>
+              <span>⚠️</span>
+              <span>{mqttError}</span>
+            </div>
+          )}
+
+          {mqttLoading && !mqttMeta ? (
+            <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>
+              Đang truy vấn thông tin tài khoản từ Mosquitto Broker…
+            </div>
+          ) : (
+            <>
+              {/* Lưới thông tin tài khoản */}
+              <div className="info-grid" style={{ marginBottom: '24px' }}>
+                <div className="info-item">
+                  <span className="info-label">Máy chủ Broker</span>
+                  <strong className="info-value">
+                    {mqttMeta?.broker_host}:{mqttMeta?.broker_port} {mqttMeta?.use_tls ? '(TLS/SSL)' : '(TCP)'}
+                  </strong>
+                </div>
+
+                <div className="info-item">
+                  <span className="info-label">Tên tài khoản (Username)</span>
+                  <strong className="info-value">@{mqttMeta?.username}</strong>
+                </div>
+
+                <div className="info-item">
+                  <span className="info-label">Client ID bắt buộc</span>
+                  <strong className="info-value">{mqttMeta?.client_id}</strong>
+                </div>
+
+                <div className="info-item">
+                  <span className="info-label">Trạng thái trên Broker</span>
+                  <div>
+                    {!mqttMeta?.broker_connected ? (
+                      <span className="status-pill offline" title={mqttMeta?.broker_error}>
+                        Mất kết nối tới Broker
+                      </span>
+                    ) : !mqttMeta?.account_exists ? (
+                      <span className="status-pill offline">Chưa khởi tạo trên Broker</span>
+                    ) : mqttMeta?.is_disabled ? (
+                      <span className="status-pill timeout">Đang bị khóa (Disabled)</span>
+                    ) : (
+                      <span className="status-pill online">Đang hoạt động (Enabled)</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Phân quyền Topic (ACL) */}
+              <div
+                style={{
+                  padding: '16px 20px',
+                  backgroundColor: 'var(--bg-subtle)',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--border-color)',
+                  marginBottom: '24px',
+                }}
+              >
+                <strong style={{ display: 'block', marginBottom: '8px', fontSize: '14px', color: 'var(--text-main)' }}>
+                  Phân quyền Topic (Mosquitto Dynamic Security ACL)
+                </strong>
+                <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+                  Tủ mạng chỉ có quyền xuất bản/nhận lệnh trên các topic riêng của chính nó; tuyệt đối không cấp quyền wildcard (#/+).
+                </p>
+                <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '13px', lineHeight: 1.8 }}>
+                  <li>
+                    <strong>Gửi số đo viễn trắc (Publish):</strong> <code>{mqttMeta?.topics?.telemetry}</code>
+                  </li>
+                  <li>
+                    <strong>Gửi trạng thái hoạt động (Publish):</strong> <code>{mqttMeta?.topics?.status}</code>
+                  </li>
+                  <li>
+                    <strong>Gửi phản hồi thực thi lệnh ACK (Publish):</strong> <code>{mqttMeta?.topics?.acks}</code>
+                  </li>
+                  <li>
+                    <strong>Nhận lệnh điều khiển từ máy chủ (Subscribe):</strong> <code>{mqttMeta?.topics?.commands}</code>
+                  </li>
+                </ul>
+              </div>
+
+              {/* Các nút thao tác vòng đời */}
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                {!mqttMeta?.account_exists && (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={mqttBusy || !mqttMeta?.broker_connected}
+                    onClick={() => {
+                      setCustomPassword('')
+                      setShowProvisionModal(true)
+                    }}
+                  >
+                    ✨ Khởi tạo tài khoản MQTT (Provision)
+                  </button>
+                )}
+
+                {mqttMeta?.account_exists && mqttMeta?.is_disabled && (
+                  <button
+                    type="button"
+                    className="btn btn-success"
+                    disabled={mqttBusy || !mqttMeta?.broker_connected || device?.status === 'DECOMMISSIONED'}
+                    onClick={handleEnableMqtt}
+                  >
+                    ▶️ Kích hoạt tài khoản (Enable)
+                  </button>
+                )}
+
+                {mqttMeta?.account_exists && !mqttMeta?.is_disabled && (
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    disabled={mqttBusy || !mqttMeta?.broker_connected}
+                    onClick={handleDisableMqtt}
+                  >
+                    ⏸️ Tạm vô hiệu hóa (Disable)
+                  </button>
+                )}
+
+                {mqttMeta?.account_exists && (
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    disabled={mqttBusy || !mqttMeta?.broker_connected}
+                    onClick={() => {
+                      setCustomPassword('')
+                      setShowResetModal(true)
+                    }}
+                  >
+                    🔑 Đặt lại mật khẩu MQTT
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </section>
+      )}
+
+      {/* MODAL 1: KHỞI TẠO TÀI KHOẢN MQTT */}
+      {showProvisionModal && (
+        <div className="modal-backdrop" onClick={() => !mqttBusy && setShowProvisionModal(false)}>
+          <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Khởi tạo tài khoản MQTT cho tủ {id}</h3>
+              <p>Tạo Role phân quyền topic và Client định danh trên Mosquitto Broker</p>
+            </div>
+
+            <form onSubmit={handleProvisionMqtt}>
+              <div className="form-group">
+                <label htmlFor="provision-password">
+                  Mật khẩu MQTT tùy chọn (Tối thiểu 12 ký tự)
+                </label>
+                <input
+                  id="provision-password"
+                  type="password"
+                  value={customPassword}
+                  onChange={(e) => setCustomPassword(e.target.value)}
+                  placeholder="Để trống để hệ thống tự sinh 16 ký tự an toàn"
+                  minLength={12}
+                />
+                <small className="field-hint">
+                  Nếu để trống, hệ thống sẽ tự động sinh mật khẩu ngẫu nhiên có độ phức tạp cao.
+                </small>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '24px' }}>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  disabled={mqttBusy}
+                  onClick={() => setShowProvisionModal(false)}
+                >
+                  Hủy
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={mqttBusy}>
+                  {mqttBusy ? 'Đang khởi tạo…' : 'Khởi tạo tài khoản'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: ĐẶT LẠI MẬT KHẨU MQTT */}
+      {showResetModal && (
+        <div className="modal-backdrop" onClick={() => !mqttBusy && setShowResetModal(false)}>
+          <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Đặt lại mật khẩu MQTT cho tủ {id}</h3>
+              <p>Đổi mật khẩu kết nối trên Mosquitto Broker</p>
+            </div>
+
+            <div className="notice-box warning" style={{ marginBottom: '16px' }}>
+              <span>⚠️</span>
+              <span>
+                <strong>Cảnh báo:</strong> Sau khi đổi mật khẩu trên Broker, vi điều khiển ESP32 trong tủ sẽ bị ngắt kết nối cho tới khi nạp mật khẩu mới vào firmware.
+              </span>
+            </div>
+
+            <form onSubmit={handleResetPasswordMqtt}>
+              <div className="form-group">
+                <label htmlFor="reset-password-input">
+                  Mật khẩu mới (Tùy chọn, tối thiểu 12 ký tự)
+                </label>
+                <input
+                  id="reset-password-input"
+                  type="password"
+                  value={customPassword}
+                  onChange={(e) => setCustomPassword(e.target.value)}
+                  placeholder="Để trống để hệ thống tự sinh 16 ký tự an toàn"
+                  minLength={12}
+                />
+                <small className="field-hint">
+                  Nếu để trống, hệ thống sẽ tự động sinh mật khẩu ngẫu nhiên an toàn.
+                </small>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '24px' }}>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  disabled={mqttBusy}
+                  onClick={() => setShowResetModal(false)}
+                >
+                  Hủy
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={mqttBusy}>
+                  {mqttBusy ? 'Đang đổi mật khẩu…' : 'Xác nhận đổi mật khẩu'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: HIỂN THỊ MẬT KHẨU DUY NHẤT MỘT LẦN (SECRET VIEWER) */}
+      {showSecretModal && secretResult && (
+        <div className="modal-backdrop" onClick={() => setShowSecretModal(false)}>
+          <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Thông tin kết nối MQTT của tủ</h3>
+              <p>{secretResult.message}</p>
+            </div>
+
+            <div className="notice-box warning" style={{ marginBottom: '20px' }}>
+              <span>⚠️</span>
+              <div>
+                <strong>LƯU Ý BẢO MẬT QUAN TRỌNG:</strong>
+                <p style={{ margin: '4px 0 0 0' }}>{secretResult.note}</p>
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label>Tên đăng nhập (Username / Client ID)</label>
+              <input type="text" disabled value={secretResult.username} />
+            </div>
+
+            <div className="form-group">
+              <label>Mật khẩu MQTT</label>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input
+                  type="text"
+                  readOnly
+                  value={secretResult.password}
+                  style={{
+                    fontFamily: 'monospace',
+                    fontWeight: 700,
+                    letterSpacing: '1px',
+                    backgroundColor: '#fffbeb',
+                    borderColor: '#fde68a',
+                    color: '#92400e',
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  onClick={() => {
+                    navigator.clipboard.writeText(secretResult.password)
+                    showToast?.('Đã sao chép mật khẩu vào bộ nhớ tạm!', 'success')
+                  }}
+                  title="Sao chép mật khẩu"
+                >
+                  📋 Sao chép
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '24px' }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => setShowSecretModal(false)}
+              >
+                Đã sao chép & Đóng hộp thoại
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, asList, translateCommandStatus, translateCommandType } from '../api.js'
+import Pagination from '../components/Pagination.jsx'
 
 /**
  * Trang Lịch sử phát lệnh điều khiển (CommandsPage)
@@ -16,6 +17,8 @@ export default function CommandsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [cmdFilter, setCmdFilter] = useState('all')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
 
   const loadCommands = useCallback(async () => {
     try {
@@ -61,6 +64,9 @@ export default function CommandsPage() {
     return st === cmdFilter.toUpperCase()
   })
 
+  // Dữ liệu phân trang
+  const paginatedCommands = filteredCommands.slice((page - 1) * pageSize, page * pageSize)
+
   const format = (val) => (val === null || val === undefined || val === '' ? '--' : val)
   const formatDate = (val) => (val ? new Date(val).toLocaleString('vi-VN') : '--')
 
@@ -79,7 +85,10 @@ export default function CommandsPage() {
         <div className="filters">
           <select
             value={cmdFilter}
-            onChange={(e) => setCmdFilter(e.target.value)}
+            onChange={(e) => {
+              setCmdFilter(e.target.value)
+              setPage(1)
+            }}
             aria-label="Lọc theo trạng thái lệnh"
           >
             <option value="all">Tất cả trạng thái lệnh</option>
@@ -106,7 +115,7 @@ export default function CommandsPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredCommands.map((cmd, idx) => {
+              {paginatedCommands.map((cmd, idx) => {
                 const devId = cmd.device_id || cmd.device
                 const statusStr = String(cmd.status || '').toLowerCase()
                 const rawCmdType = cmd.command_type || cmd.command
@@ -181,6 +190,15 @@ export default function CommandsPage() {
             </tbody>
           </table>
         </div>
+
+        {/* Phân trang danh sách lệnh */}
+        <Pagination
+          currentPage={page}
+          totalItems={filteredCommands.length}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+        />
       </section>
     </div>
   )

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, asList, translateConnectionState } from '../api.js'
+import Pagination from '../components/Pagination.jsx'
 
 /**
  * Trang Danh sách tủ mạng (DevicesPage - UI-04)
@@ -17,6 +18,8 @@ export default function DevicesPage({ user, showToast }) {
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
 
   // Modals quản trị thiết bị (ADMIN)
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -88,6 +91,9 @@ export default function DevicesPage({ user, showToast }) {
 
     return matchesSearch && matchesFilter
   })
+
+  // Dữ liệu phân trang
+  const paginatedDevices = filteredDevices.slice((page - 1) * pageSize, page * pageSize)
 
   // Xử lý Thêm thiết bị mới
   const handleCreateDevice = async (e) => {
@@ -221,13 +227,19 @@ export default function DevicesPage({ user, showToast }) {
           <input
             type="text"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value)
+              setPage(1)
+            }}
             placeholder="Tìm theo tên tủ hoặc mã tủ..."
             aria-label="Tìm kiếm tủ mạng"
           />
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(e) => {
+              setStatusFilter(e.target.value)
+              setPage(1)
+            }}
             aria-label="Lọc theo trạng thái kết nối"
           >
             <option value="all">Tất cả trạng thái kết nối</option>
@@ -252,7 +264,7 @@ export default function DevicesPage({ user, showToast }) {
               </tr>
             </thead>
             <tbody>
-              {filteredDevices.map((device, idx) => {
+              {paginatedDevices.map((device, idx) => {
                 const devId = device.id || device.device_id
                 const conn = translateConnectionState(
                   device.is_online,
@@ -373,6 +385,15 @@ export default function DevicesPage({ user, showToast }) {
             </tbody>
           </table>
         </div>
+
+        {/* Phân trang danh sách tủ */}
+        <Pagination
+          currentPage={page}
+          totalItems={filteredDevices.length}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+        />
       </section>
 
       {/* MODAL 1: THÊM TỦ MẠNG MỚI (ADMIN) */}

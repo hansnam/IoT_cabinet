@@ -695,6 +695,97 @@ td small {
   display: block;
 }
 
+/* ==========================================================================
+   Thanh phân trang bảng dữ liệu (Pagination component)
+   ========================================================================== */
+.table-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 4px 6px 4px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.pagination-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pagination-info strong {
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.page-size-selector select {
+  width: auto !important;
+  height: 28px !important;
+  padding: 2px 8px !important;
+  font-size: 12px !important;
+  border-radius: var(--radius-sm) !important;
+  border: 1px solid var(--border-color) !important;
+  background-color: var(--bg-surface) !important;
+  color: var(--text-main) !important;
+  display: inline-block;
+  cursor: pointer;
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pagination-btn {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  color: var(--text-main);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+  background-color: var(--primary-light);
+}
+
+.pagination-btn.active {
+  background-color: var(--primary);
+  border-color: var(--primary);
+  color: #ffffff;
+  font-weight: 600;
+  cursor: default;
+}
+
+.pagination-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  border-color: var(--border-color);
+  background-color: var(--bg-subtle);
+  color: var(--text-light);
+}
+
+.pagination-ellipsis {
+  padding: 0 4px;
+  color: var(--text-light);
+  font-size: 13px;
+  user-select: none;
+}
+
 /* Huy hiệu trạng thái và độ nghiêm trọng */
 .status-pill,
 .severity {

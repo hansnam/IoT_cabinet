@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, asList, translateRole } from '../api.js'
+import Pagination from '../components/Pagination.jsx'
 
 /**
  * Trang Quản trị Tài khoản & Phân quyền tủ mạng (AccountsPage)
@@ -20,6 +21,12 @@ export default function AccountsPage({ showToast }) {
   const [userSearch, setUserSearch] = useState('')
   const [userRoleFilter, setUserRoleFilter] = useState('all')
   const [userStatusFilter, setUserStatusFilter] = useState('all')
+  const [userPage, setUserPage] = useState(1)
+  const [userPageSize, setUserPageSize] = useState(10)
+
+  // Phân trang danh sách cấp quyền
+  const [grantPage, setGrantPage] = useState(1)
+  const [grantPageSize, setGrantPageSize] = useState(10)
 
   // Trạng thái modal
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -106,6 +113,10 @@ export default function AccountsPage({ showToast }) {
 
     return matchesSearch && matchesRole && matchesStatus
   })
+
+  // Dữ liệu phân trang
+  const paginatedUsers = filteredUsers.slice((userPage - 1) * userPageSize, userPage * userPageSize)
+  const paginatedGrants = grants.slice((grantPage - 1) * grantPageSize, grantPage * grantPageSize)
 
   // Xử lý tạo người dùng mới
   async function handleCreateUser(e) {
@@ -371,13 +382,19 @@ export default function AccountsPage({ showToast }) {
             <input
               type="text"
               value={userSearch}
-              onChange={(e) => setUserSearch(e.target.value)}
+              onChange={(e) => {
+                setUserSearch(e.target.value)
+                setUserPage(1)
+              }}
               placeholder="Tìm theo tên đăng nhập, họ tên hoặc email..."
               aria-label="Tìm kiếm tài khoản"
             />
             <select
               value={userRoleFilter}
-              onChange={(e) => setUserRoleFilter(e.target.value)}
+              onChange={(e) => {
+                setUserRoleFilter(e.target.value)
+                setUserPage(1)
+              }}
               aria-label="Lọc theo vai trò"
             >
               <option value="all">Tất cả vai trò</option>
@@ -387,7 +404,10 @@ export default function AccountsPage({ showToast }) {
             </select>
             <select
               value={userStatusFilter}
-              onChange={(e) => setUserStatusFilter(e.target.value)}
+              onChange={(e) => {
+                setUserStatusFilter(e.target.value)
+                setUserPage(1)
+              }}
               aria-label="Lọc theo trạng thái"
             >
               <option value="all">Tất cả trạng thái</option>
@@ -411,7 +431,7 @@ export default function AccountsPage({ showToast }) {
                 </tr>
               </thead>
               <tbody>
-                {filteredUsers.map((u) => {
+                {paginatedUsers.map((u) => {
                   const isLocked = u.status === 'LOCKED'
                   const isArchived = u.status === 'ARCHIVED'
                   const isRoleAdmin = u.role === 'ADMIN'
@@ -509,6 +529,15 @@ export default function AccountsPage({ showToast }) {
               </tbody>
             </table>
           </div>
+
+          {/* Phân trang danh sách người dùng */}
+          <Pagination
+            currentPage={userPage}
+            totalItems={filteredUsers.length}
+            pageSize={userPageSize}
+            onPageChange={setUserPage}
+            onPageSizeChange={setUserPageSize}
+          />
         </section>
       )}
 
@@ -543,7 +572,7 @@ export default function AccountsPage({ showToast }) {
                 </tr>
               </thead>
               <tbody>
-                {grants.map((grant) => (
+                {paginatedGrants.map((grant) => (
                   <tr key={grant.id}>
                     <td>
                       <strong>{grant.user_full_name || grant.username}</strong>
@@ -584,6 +613,15 @@ export default function AccountsPage({ showToast }) {
               </tbody>
             </table>
           </div>
+
+          {/* Phân trang danh sách cấp quyền */}
+          <Pagination
+            currentPage={grantPage}
+            totalItems={grants.length}
+            pageSize={grantPageSize}
+            onPageChange={setGrantPage}
+            onPageSizeChange={setGrantPageSize}
+          />
         </section>
       )}
 

@@ -1,5 +1,7 @@
 import re
+
 from rest_framework import serializers
+
 from apps.devices.models import Device, DeviceAccess, DeviceConfig
 
 
@@ -62,6 +64,7 @@ class DeviceSerializer(serializers.ModelSerializer):
     def get_can_operate(self, obj):
         """Frontend dùng cờ này để ẩn nút; backend vẫn tự kiểm quyền khi nhận lệnh."""
         from django.core.exceptions import PermissionDenied
+
         from apps.devices.policies import require_device_permission
         request = self.context.get('request')
         if not request or obj.status != 'ACTIVE':
