@@ -488,7 +488,7 @@ export default function AccountsPage({ showToast }) {
                             onClick={() => openPasswordModal(u)}
                             title="Đặt lại mật khẩu tạm"
                           >
-                            Đổi MK
+                            Đặt lại mật khẩu
                           </button>
                           {!isArchived && (
                             <button
@@ -510,7 +510,7 @@ export default function AccountsPage({ showToast }) {
                               }}
                               title="Cấp quyền truy cập tủ"
                             >
-                              + Quyền tủ
+                              Cấp quyền tủ
                             </button>
                           )}
                         </div>
@@ -631,7 +631,7 @@ export default function AccountsPage({ showToast }) {
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Thêm tài khoản người dùng mới</h3>
-              <p>Khởi tạo tài khoản và đặt mật khẩu tạm thời ban đầu</p>
+
             </div>
 
             {formError && (
@@ -643,7 +643,7 @@ export default function AccountsPage({ showToast }) {
 
             <form onSubmit={handleCreateUser}>
               <div className="form-group">
-                <label htmlFor="create-username">Tên đăng nhập (Username) *</label>
+                <label htmlFor="create-username">Tên đăng nhập *</label>
                 <input
                   id="create-username"
                   type="text"
@@ -731,7 +731,7 @@ export default function AccountsPage({ showToast }) {
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Sửa tài khoản @{selectedUser.username}</h3>
-              <p>Cập nhật họ tên, địa chỉ email, vai trò hoặc trạng thái</p>
+
             </div>
 
             {formError && (
@@ -743,7 +743,7 @@ export default function AccountsPage({ showToast }) {
 
             <form onSubmit={handleUpdateUser}>
               <div className="form-group">
-                <label>Tên đăng nhập (Username)</label>
+                <label>Tên đăng nhập</label>
                 <input type="text" value={selectedUser.username} disabled readOnly />
                 <small className="field-hint">Tên đăng nhập không thể sửa đổi.</small>
               </div>
@@ -887,7 +887,7 @@ export default function AccountsPage({ showToast }) {
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Cấp quyền truy cập tủ mạng</h3>
-              <p>Chỉ định người dùng và quyền thao tác trên tủ</p>
+
             </div>
 
             {formError && (

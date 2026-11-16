@@ -4,7 +4,7 @@ import { api } from '../api.js'
 /**
  * Trang Cấu hình Kết nối MQTT Broker (MqttSettingsPage - UI-05)
  * Dành riêng cho Quản trị viên (ADMIN).
- * 
+ *
  * Cho phép:
  * 1. Xem trạng thái kết nối của Broker và tiến trình MQTT Worker theo thời gian thực (Heartbeat, Revision, Lỗi).
  * 2. Cấu hình host, port, TLS (CA PEM), tài khoản Worker và tài khoản Quản trị Mosquitto Dynamic Security.
@@ -163,7 +163,7 @@ export default function MqttSettingsPage({ showToast }) {
         admin_password: '',
         clear_admin_password: false,
       }))
-      showToast?.('Đã lưu cấu hình Broker! Worker đang cập nhật runtime.', 'success')
+      showToast?.('Đã lưu cấu hình. Hệ thống đang kết nối lại.', 'success')
     } catch (err) {
       setError(err.message || 'Lỗi khi lưu cấu hình Broker.')
     } finally {
@@ -202,8 +202,8 @@ export default function MqttSettingsPage({ showToast }) {
       <section className="card" aria-labelledby="worker-status-heading">
         <div className="card-heading">
           <div>
-            <h2 id="worker-status-heading">Trạng thái kết nối Broker & Worker</h2>
-            <p>Giám sát tình trạng đồng bộ cấu hình và nhịp tim của tiến trình nền MQTT Worker</p>
+            <h2 id="worker-status-heading">Trạng thái kết nối hệ thống</h2>
+
           </div>
           <span className="count">
             Phiên bản cấu hình: v{settingsData?.revision ?? 0}
@@ -246,7 +246,7 @@ export default function MqttSettingsPage({ showToast }) {
           </div>
 
           <div className="info-item">
-            <span className="info-label">Revision Worker đã nhận</span>
+            <span className="info-label">Cấu hình đang sử dụng</span>
             <strong className="info-value">
               v{settingsData?.worker_last_seen_revision ?? 0}{' '}
               {settingsData?.worker_last_seen_revision === settingsData?.revision ? (
@@ -258,7 +258,7 @@ export default function MqttSettingsPage({ showToast }) {
           </div>
 
           <div className="info-item">
-            <span className="info-label">Nhịp tim gần nhất (Heartbeat)</span>
+            <span className="info-label">Lần cập nhật gần nhất</span>
             <strong className="info-value">
               {settingsData?.worker_heartbeat_at
                 ? new Date(settingsData.worker_heartbeat_at).toLocaleTimeString('vi-VN')
@@ -282,7 +282,7 @@ export default function MqttSettingsPage({ showToast }) {
         <div className="card-heading">
           <div>
             <h2 id="broker-form-heading">Thiết lập kết nối MQTT Broker</h2>
-            <p>Cấu hình địa chỉ máy chủ, mã hóa TLS và tài khoản xác thực (Lưu an toàn với Fernet 128-bit)</p>
+
           </div>
         </div>
 
@@ -327,7 +327,7 @@ export default function MqttSettingsPage({ showToast }) {
               <span>Bật mã hóa đường truyền TLS/SSL</span>
             </label>
             <small className="field-hint" style={{ marginTop: '4px' }}>
-              Bảo vệ dữ liệu truyền tải giữa Django, Worker và Mosquitto Broker.
+              Mã hóa dữ liệu khi kết nối tới máy chủ MQTT.
             </small>
           </div>
 
@@ -342,7 +342,7 @@ export default function MqttSettingsPage({ showToast }) {
                 placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
               />
               <small className="field-hint">
-                Dán nội dung chứng chỉ CA (Public Certificate) để xác minh máy chủ. Không dán Private Key.
+                Chứng chỉ để xác minh máy chủ. Không nhập khóa riêng.
               </small>
             </div>
           )}
@@ -350,7 +350,7 @@ export default function MqttSettingsPage({ showToast }) {
           <hr className="menu-divider" style={{ margin: '24px 0' }} />
 
           <h3 style={{ fontSize: '15px', margin: '0 0 16px 0', color: 'var(--text-main)' }}>
-            1. Tài khoản MQTT Worker (Thu thập dữ liệu & Điều phối Outbox)
+            1. Tài khoản kết nối hệ thống
           </h3>
 
           <div className="config-grid">
@@ -370,7 +370,7 @@ export default function MqttSettingsPage({ showToast }) {
                 Mật khẩu Worker{' '}
                 {settingsData?.worker_password_set && (
                   <span style={{ color: 'var(--success)', fontSize: '11px', fontWeight: 600 }}>
-                    (✓ Đã lưu trong CSDL)
+                    Đã lưu mật khẩu
                   </span>
                 )}
               </label>
@@ -394,7 +394,7 @@ export default function MqttSettingsPage({ showToast }) {
                     type="button"
                     className="btn btn-outline btn-sm"
                     onClick={() => {
-                      if (window.confirm('Bạn có chắc muốn xóa mật khẩu Worker đã lưu trong CSDL?')) {
+                      if (window.confirm('Bạn có chắc muốn xóa mật khẩu Worker đã lưu?')) {
                         setForm({ ...form, clear_worker_password: true, worker_password: '' })
                       }
                     }}
@@ -424,7 +424,7 @@ export default function MqttSettingsPage({ showToast }) {
           <hr className="menu-divider" style={{ margin: '24px 0' }} />
 
           <h3 style={{ fontSize: '15px', margin: '0 0 16px 0', color: 'var(--text-main)' }}>
-            2. Tài khoản Quản trị Mosquitto Dynamic Security (Tùy chọn)
+            2. Tài khoản quản trị máy chủ MQTT
           </h3>
 
           <div className="config-grid">
@@ -437,7 +437,7 @@ export default function MqttSettingsPage({ showToast }) {
                 onChange={(e) => setForm({ ...form, admin_username: e.target.value })}
                 placeholder="Ví dụ: mosquitto_admin"
               />
-              <small className="field-hint">Dùng để đồng bộ quyền Dynamic Security (UI-06).</small>
+              <small className="field-hint">Dùng để tạo và quản lý tài khoản kết nối của các tủ.</small>
             </div>
 
             <div className="form-group">
@@ -445,7 +445,7 @@ export default function MqttSettingsPage({ showToast }) {
                 Mật khẩu Quản trị{' '}
                 {settingsData?.admin_password_set && (
                   <span style={{ color: 'var(--success)', fontSize: '11px', fontWeight: 600 }}>
-                    (✓ Đã lưu trong CSDL)
+                    Đã lưu mật khẩu
                   </span>
                 )}
               </label>
@@ -469,7 +469,7 @@ export default function MqttSettingsPage({ showToast }) {
                     type="button"
                     className="btn btn-outline btn-sm"
                     onClick={() => {
-                      if (window.confirm('Bạn có chắc muốn xóa mật khẩu Quản trị đã lưu trong CSDL?')) {
+                      if (window.confirm('Bạn có chắc muốn xóa mật khẩu Quản trị đã lưu?')) {
                         setForm({ ...form, clear_admin_password: true, admin_password: '' })
                       }
                     }}

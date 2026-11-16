@@ -1,251 +1,219 @@
-# Hệ Thống IoT Giám Sát Nhiệt Độ, Độ Ẩm và Điều Khiển Thông Gió Tủ Thiết Bị Mạng
+# IoT Cabinet
 
-> **Kế hoạch hiện hành (04/11/2026):** nhóm chuyển sang Django + Django REST Framework, dùng Django Admin và session/CSRF theo [đặc tả V1.4](docs/IOT_TU_THIET_BI_DAC_TA_CHUNG_V1_3.md) và [đánh giá chuyển đổi](docs/DANH_GIA_VA_CHUYEN_DOI_DJANGO.md). Mã nguồn và hướng dẫn chạy bên dưới hiện vẫn là Flask; lần này mới cập nhật tài liệu. Bản tại `Description/` là tài liệu lịch sử. Cấu trúc đích đặt Django trực tiếp trong `backend/` (`manage.py`, `config/`, `apps/`), bản Flask sẽ lưu riêng tại `back/`; hiện chưa di chuyển source.
+Hệ thống giám sát nhiệt độ, độ ẩm, cảnh báo và điều khiển thông gió cho tủ thiết bị. Giao diện hỗ trợ quản lý tài khoản, phân quyền theo tủ, cấu hình thiết bị và kết nối MQTT.
 
-Dự án phát triển hệ thống nhúng và phần mềm quản lý, giám sát môi trường và tự động điều khiển quạt thông gió trong tủ mạng viễn thông / máy chủ (P0 Scope).
+## Công nghệ và cấu trúc
 
----
-
-## 1. Cấu Trúc Thư Mục Dự Án
+- Backend: Django + Django REST Framework, PostgreSQL, xác thực bằng session và CSRF.
+- Frontend: React + Vite.
+- Giao tiếp thiết bị: Mosquitto MQTT và worker Django; ESP32 chạy firmware riêng.
 
 ```text
-├── Description/          # Hồ sơ đặc tả và đề bài đồ án (V1.3 P0/P1/P2)
-├── backend/              # Mã nguồn Flask Backend API & Workers
-│   ├── app/              # Application Factory, Security & Blueprints
-│   │   ├── security/     # [TV3] Module an ninh: Catalog lỗi, Envelope, Context, Validation
-│   │   ├── models/       # SQLAlchemy Models (27 bảng: IAM, Devices, Telemetry, Alerts, Logs)
-│   │   ├── auth/         # Blueprint xác thực (JWT 15m, Session DB, Login/Logout)
-│   │   ├── users/        # Blueprint quản lý người dùng & phân quyền RBAC
-│   │   ├── devices/      # Blueprint thiết bị & nhóm tủ
-│   │   ├── telemetry/    # Blueprint dữ liệu cảm biến & export CSV
-│   │   ├── commands/     # Blueprint tạo lệnh & outbox dispatch
-│   │   ├── alerts/       # Blueprint sự cố & quy tắc cảnh báo
-│   │   ├── audit/        # Blueprint audit logs bảo mật
-│   │   └── extensions.py # Khởi tạo extensions: DB, Migrate, JWT, CORS
-│   ├── workers/          # Tiến trình nền độc lập
-│   │   ├── mqtt_worker.py   # Ingest telemetry từ ESP32 & dispatch lệnh ra broker
-│   │   └── alert_worker.py  # Đánh giá cảnh báo định kỳ theo chu kỳ 10 giây
-│   ├── migrations/       # Flask-Migrate / Alembic migration scripts (fcb8c798de10)
-│   └── requirements.txt  # Thư viện Python phụ thuộc
-├── frontend/             # Ứng dụng Web (React + Vite + Recharts)
-├── firmware/             # Mã nguồn nhúng ESP32 (Node Controller & Node Fan)
-├── hardware/             # Sơ đồ nguyên lý, BOM, pinout mạch phần cứng
-├── database/             # ERD, Data Dictionary, tài liệu SQL seed
-├── deployment/           # Docker Compose, Mosquitto config, Nginx proxy
-├── tests/                # Bộ kiểm thử tự động (Unit, API, Integration, Security)
-│   └── tv3/              # Bộ test nền tảng bảo mật TV3 (test_foundation.py)
-└── docs/                 # Tài liệu kỹ thuật, hướng dẫn cài đặt DB local
+backend/       Django: manage.py, config/, apps/, migrations và test
+frontend/      React và cấu hình Vite
+firmware/      Chương trình cho ESP32
+deployment/    Docker Compose và cấu hình Mosquitto
+database/      Tài liệu dữ liệu và SQL lịch sử
+docs/          Tài liệu dự án
+back/          Backend Flask cũ, không dùng để chạy bản hiện tại
 ```
 
----
+Database Django được tạo bằng migration trong `backend/apps/`. Không import file SQL 27 bảng cũ để khởi tạo database Django.
 
-## 2. Hướng Dẫn Từng Bước: Khởi Tạo & Khởi Chạy Hệ Thống
+## 1. Chuẩn bị môi trường
 
-Tất cả các lệnh dưới đây được thiết kế chạy từ **thư mục gốc dự án** (`E:\Python\IoT_cabinet`) trên môi trường **Windows PowerShell**.
+Hướng dẫn dưới đây dùng **Windows PowerShell**, chạy từ thư mục gốc `IoT_cabinet`.
 
----
-
-### Bước 1: Kích Hoạt Môi Trường Ảo Python (`.venv`)
-
-Dự án sử dụng môi trường ảo đặt tại thư mục `.venv` ở thư mục gốc.
+Cần Python tương thích các phiên bản đã pin trong `backend/requirements.txt`, Node.js tương thích `frontend/package.json`, PostgreSQL và Mosquitto. Môi trường đã kiểm tra trong quá trình phát triển: Python 3.14, Django 5.2 và PostgreSQL 16. Dùng `npm ci` để cài đúng lockfile.
 
 ```powershell
-# 1. Kích hoạt môi trường ảo (nếu dùng PowerShell)
-.\.venv\Scripts\Activate.ps1
-
-# (Nếu gặp lỗi "Execution Policy", chạy lệnh này một lần để cấp quyền):
-# Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-
-# 2. Kiểm tra Python và Pip đang trỏ đúng vào .venv
 python --version
-# Kỳ vọng: Python 3.11+ (Môi trường cục bộ khuyến nghị 3.13.x)
-
-# 3. Cài đặt các gói phụ thuộc (nếu chưa cài)
-pip install -r backend/requirements.txt
+node --version
+npm.cmd --version
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+npm.cmd --prefix frontend ci
 ```
 
----
+Các lệnh dùng trực tiếp Python trong `.venv`, không cần chạy `Activate.ps1`. Dùng `npm.cmd` để tránh lỗi PowerShell chặn `npm.ps1`.
 
-### Bước 2: Thiết Lập File Biến Môi Trường (`.env`)
+## 2. Tạo cấu hình backend
 
-Tạo file `.env` từ file mẫu `.env.example`:
+Chỉ sao chép mẫu khi **chưa có** `backend/.env`; không ghi đè cấu hình đang dùng:
 
 ```powershell
-Copy-Item .env.example .env
+if (!(Test-Path backend/.env)) {
+    Copy-Item backend/.env.example backend/.env
+}
 ```
 
-#### 2.1. LỆNH SINH MẬT KHẨU & KHÓA BẢO MẬT TỰ ĐỘNG (Copy & Dán)
+Điền các giá trị phù hợp trong `backend/.env`:
 
-Các biến bảo mật (`SECRET_KEY`, `JWT_SECRET_KEY`, `AUTH_LOG_HMAC_KEY`) bắt buộc phải là chuỗi ngẫu nhiên có độ dài **tối thiểu 32 bytes (64 ký tự hex)** và **hoàn toàn khác nhau**.
+```dotenv
+DJANGO_DEBUG=True
+DJANGO_ALLOWED_HOSTS=127.0.0.1,localhost
+DJANGO_SECRET_KEY=<khóa riêng của môi trường>
+AUTH_LOG_HMAC_KEY=<khóa riêng của môi trường>
 
-👉 **Chạy ngay lệnh Python 1-dòng dưới đây trong PowerShell để sinh toàn bộ các khóa & mật khẩu ngẫu nhiên:**
+DB_NAME=iot_cabinet_django
+DB_USER=postgres
+DB_PASSWORD=<mật khẩu PostgreSQL>
+DB_HOST=127.0.0.1
+DB_PORT=5432
+TEST_DB_NAME=iot_cabinet_django_test
+
+COOKIE_SECURE=false
+MQTT_BROKER_HOST=127.0.0.1
+MQTT_BROKER_PORT=1883
+MQTT_USERNAME=<tài khoản kết nối của backend và worker>
+MQTT_PASSWORD=<mật khẩu tài khoản worker>
+MQTT_ADMIN_USERNAME=<tài khoản quản trị broker>
+MQTT_ADMIN_PASSWORD=<mật khẩu quản trị broker>
+MQTT_CA_FILE=
+MQTT_CONFIG_ENCRYPTION_KEY=<khóa Fernet tạo một lần>
+```
+
+Các chuỗi trong `<...>` là chỗ cần thay, không phải giá trị sử dụng được. Không commit `.env` thật.
+
+Tạo khóa Django/HMAC bằng lệnh sau, chạy hai lần để lấy hai khóa khác nhau:
 
 ```powershell
-.\.venv\Scripts\python.exe -c "import secrets; print('\n' + '='*65); print('--- COPY CÁC DÒNG DƯỚI ĐÂY DÁN THAY THẾ VÀO FILE .env ---'); print('='*65); print(f'SECRET_KEY={secrets.token_hex(32)}'); print(f'JWT_SECRET_KEY={secrets.token_hex(32)}'); print(f'AUTH_LOG_HMAC_KEY={secrets.token_hex(32)}'); print(f'MQTT_WORKER_PASSWORD={secrets.token_urlsafe(16)}'); print(f'MQTT_CONTROLLER_PASSWORD={secrets.token_urlsafe(16)}'); print(f'ADMIN_BOOTSTRAP_PASSWORD={secrets.token_urlsafe(16)}'); print(f'OPERATOR_BOOTSTRAP_PASSWORD={secrets.token_urlsafe(16)}'); print(f'VIEWER_BOOTSTRAP_PASSWORD={secrets.token_urlsafe(16)}'); print('='*65 + '\n')"
+.\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(64))"
 ```
 
-#### 2.2. Xử Lý Mật Khẩu PostgreSQL Có Ký Tự Đặc Biệt (URL-Encoding)
-
-Trong chuỗi `DATABASE_URL` và `TEST_DATABASE_URL`, nếu mật khẩu PostgreSQL của bạn có chứa các ký tự đặc biệt như `@`, `#`, `:`, `/`, `$`, `%`,... thì phải mã hóa URL.
-
-👉 **Chạy lệnh sau để lấy mật khẩu đã mã hóa URL:**
+Tạo khóa mã hóa mật khẩu MQTT:
 
 ```powershell
-.\.venv\Scripts\python.exe -c "import urllib.parse; p = input('Nhập mật khẩu Postgres của bạn: '); print('\nMật khẩu đã mã hóa URL để ghép vào DATABASE_URL:\n' + urllib.parse.quote_plus(p) + '\n')"
+.\.venv\Scripts\python.exe -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-#### 2.3. Bảng Kiểm Tra Các Giá Trị Cần Điền Trong `.env`
+Giữ nguyên khóa Fernet sau khi đã lưu mật khẩu broker trên web. Đổi hoặc mất khóa sẽ làm các mật khẩu đã mã hóa không giải mã được. Các khóa môi trường được thiết lập một lần khi cài đặt; thông tin kết nối MQTT thường ngày có thể sửa trên trang Cấu hình kết nối.
 
-Mở file `.env` bằng trình biên soạn (VS Code, Notepad,...) và kiểm tra các dòng sau:
+## 3. Khởi động PostgreSQL và chuẩn bị database
 
-| Tên biến                                | Ví dụ / Hướng dẫn điền                                                      |
-| --------------------------------------- | --------------------------------------------------------------------------- |
-| `FLASK_ENV`                             | `development` (khi code và debug cục bộ)                                    |
-| `SECRET_KEY`                            | Dán chuỗi 64 ký tự hex từ lệnh sinh ở Mục 2.1                               |
-| `JWT_SECRET_KEY`                        | Dán chuỗi 64 ký tự hex từ lệnh sinh ở Mục 2.1                               |
-| `AUTH_LOG_HMAC_KEY`                     | Dán chuỗi 64 ký tự hex từ lệnh sinh ở Mục 2.1                               |
-| `DATABASE_URL`                          | `postgresql://postgres:<MAT_KHAU_POSTGRES>@127.0.0.1:5432/iot_cabinet`      |
-| `TEST_DATABASE_URL`                     | `postgresql://postgres:<MAT_KHAU_POSTGRES>@127.0.0.1:5432/iot_cabinet_test` |
-| `DB_PASSWORD`                           | Mật khẩu Postgres thật của bạn                                              |
-| `JWT_ACCESS_TOKEN_EXPIRES_SECONDS`      | `900` (15 phút theo chuẩn P0)                                               |
-| `TEST_JWT_ACCESS_TOKEN_EXPIRES_SECONDS` | `5` (thời hạn 5 giây khi chạy test)                                         |
-| `AUTH_ALLOWED_ORIGINS`                  | `http://localhost:5173,http://127.0.0.1:5173`                               |
-| `CORS_ALLOWED_ORIGINS`                  | `http://localhost:5173,http://127.0.0.1:5173`                               |
-| `MQTT_WORKER_PASSWORD`                  | Dán mật khẩu ngẫu nhiên từ lệnh ở Mục 2.1                                   |
-| `MQTT_CONTROLLER_PASSWORD`              | Dán mật khẩu ngẫu nhiên từ lệnh ở Mục 2.1                                   |
-| `ADMIN_BOOTSTRAP_PASSWORD`              | Dán mật khẩu ngẫu nhiên từ lệnh ở Mục 2.1                                   |
-| `OPERATOR_BOOTSTRAP_PASSWORD`           | Dán mật khẩu ngẫu nhiên từ lệnh ở Mục 2.1                                   |
-| `VIEWER_BOOTSTRAP_PASSWORD`             | Dán mật khẩu ngẫu nhiên từ lệnh ở Mục 2.1                                   |
+Chọn **một** cách, không chạy hai PostgreSQL cùng cổng 5432.
 
-> [!WARNING]
-> Tuyệt đối không để giá trị placeholder dạng `REPLACE_WITH_...` trong file `.env`. Nếu còn placeholder hoặc các khóa bảo mật bị trùng nhau, hệ thống sẽ chặn không cho ứng dụng khởi động để bảo vệ an toàn.
-
----
-
-### Bước 3: Khởi Tạo Cơ Sở Dữ Liệu PostgreSQL
-
-Đảm bảo dịch vụ PostgreSQL đang chạy (PostgreSQL 18 hoặc 16 tại cổng mặc định `5432`).
-
-Mở công cụ `psql` để kiểm tra và tạo 2 database độc lập:
-
-```powershell
-# Kết nối psql vào máy chủ PostgreSQL cục bộ
-& 'C:\Program Files\PostgreSQL\18\bin\psql.exe' -X -W -h 127.0.0.1 -p 5432 -U postgres -d postgres
-```
-
-Khi vào giao diện `postgres=#`, chạy các câu lệnh SQL sau:
+**Đã cài PostgreSQL trên Windows:** bật dịch vụ PostgreSQL. Dùng pgAdmin hoặc psql để tạo database `iot_cabinet_django`, rồi điền thông tin đăng nhập vào `.env`.
 
 ```sql
--- 1. Kiểm tra xem 2 database đã tồn tại chưa:
-SELECT datname FROM pg_database WHERE datname IN ('iot_cabinet', 'iot_cabinet_test');
-
--- 2. Tạo database chính và database test (nếu chưa có):
-CREATE DATABASE iot_cabinet WITH ENCODING 'UTF8';
-CREATE DATABASE iot_cabinet_test WITH ENCODING 'UTF8';
-
--- 3. Thoát khỏi psql:
-\q
+CREATE DATABASE iot_cabinet_django;
 ```
 
----
-
-### Bước 4: Chạy Database Migrations (Nạp 27 Bảng Nghiệp Vụ)
-
-Chạy Alembic migration để tạo toàn bộ 27 bảng nghiệp vụ + 1 bảng `alembic_version` trên cả 2 database:
+**Dùng Docker Desktop:** bật Docker Desktop rồi chạy:
 
 ```powershell
-# 1. Nạp bảng cho database chính (iot_cabinet)
-$env:FLASK_ENV='development'
-.\.venv\Scripts\python.exe -m flask --app backend.app:create_app db upgrade --directory backend/migrations
-
-# 2. Nạp bảng cho database kiểm thử (iot_cabinet_test)
-$env:FLASK_ENV='testing'
-.\.venv\Scripts\python.exe -m flask --app backend.app:create_app db upgrade --directory backend/migrations
-
-# 3. Trả lại biến môi trường về development
-$env:FLASK_ENV='development'
+docker compose -f deployment/docker-compose.yml up -d postgres
+docker compose -f deployment/docker-compose.yml ps
 ```
 
-> [!NOTE]
-> **Không chạy lệnh `flask seed` ở bước này.** Dữ liệu tài khoản mẫu đang được chuẩn hóa mật khẩu và liên kết Dynamic Security ở gói TV3-01B.
+Compose mặc định tạo `iot_cabinet_django`, user `postgres`, password `postgres123` khi volume mới được khởi tạo. Nếu volume đã tồn tại, đổi biến trong Compose không tự đổi database/mật khẩu cũ. Không xóa volume để sửa lỗi kết nối.
 
----
-
-### Bước 5: Chạy Kiểm Thử Tự Động (Pytest)
-
-Trước khi chạy server, hãy chạy bộ kiểm thử để đảm bảo mọi cấu hình và module an ninh đều hợp lệ:
+Sau khi database sẵn sàng:
 
 ```powershell
-# 1. Chạy Unit tests (không cần kết nối Database):
-.\.venv\Scripts\python.exe -m pytest tests/tv3/test_foundation.py -v -k "not postgres"
-
-# 2. Chạy toàn bộ kiểm thử (gồm cả Database Guard & Health Readiness trên PostgreSQL):
-.\.venv\Scripts\python.exe -m pytest tests/tv3/test_foundation.py -v
+.\.venv\Scripts\python.exe backend\manage.py migrate
+.\.venv\Scripts\python.exe backend\manage.py seed_roles
+.\.venv\Scripts\python.exe backend\manage.py bootstrap_admin --username admin
 ```
 
-Kỳ vọng: Tất cả các bài kiểm thử đều hiển thị màu xanh `PASSED`.
+Nhập mật khẩu khi được hỏi (12–128 ký tự). Không có mật khẩu admin mặc định. Nếu tài khoản đã tồn tại, bootstrap không ghi đè mật khẩu. Lần đăng nhập đầu cần đổi mật khẩu.
 
----
+## 4. Khởi động Mosquitto
 
-### Bước 6: Khởi Chạy Backend API Server
+Broker là dịch vụ nhận/gửi dữ liệu MQTT; **worker không thay thế broker**. Chọn một cách, tránh hai dịch vụ cùng chiếm cổng 1883.
 
-Khởi động Flask API Server tại địa chỉ `127.0.0.1:5000`:
+**Mosquitto cài trên Windows:** kiểm tra dịch vụ:
 
 ```powershell
-.\.venv\Scripts\python.exe -m flask --app backend.app:create_app run --host 127.0.0.1 --port 5000
+Get-Service mosquitto
 ```
 
-#### Kiểm Tra Sức Khỏe Máy Chủ (Health Endpoints)
+Nếu chưa chạy, mở PowerShell với quyền Administrator và chạy:
 
-Mở một cửa sổ PowerShell hoặc Terminal khác để kiểm tra phản hồi:
+```powershell
+Start-Service mosquitto
+```
 
-1. **Kiểm tra Liveness (Máy chủ đang chạy):**
+Bản cài mặc định có thể chỉ cho kết nối local và chưa có tài khoản/plugin quản trị. Tài khoản `django_worker` trong `.env` không được Mosquitto tự tạo. Để quản lý tài khoản từng tủ trên web, broker phải được cấu hình plugin **Dynamic Security**, tài khoản quản trị và tài khoản worker có quyền topic phù hợp. Không dùng file `deployment/mosquitto/config/mosquitto.conf` nguyên trạng cho Windows: file đó dùng đường dẫn plugin Linux bên trong Docker.
 
-   ```powershell
-   curl http://127.0.0.1:5000/health/live
-   ```
+**Dùng Docker:** repo có cấu hình broker/plugin và dữ liệu demo sẵn:
 
-   _Kết quả kỳ vọng:_
+```powershell
+docker compose -f deployment/docker-compose.yml up -d mosquitto
+docker compose -f deployment/docker-compose.yml logs --tail 60 mosquitto
+```
 
-   ```json
-   { "status": "live" }
-   ```
+Dùng credential tương ứng với cấu hình broker của nhóm, điền vào `.env` hoặc trang cấu hình MQTT. Không giả định mật khẩu mặc định và không ghi đè `dynamic-security.json` đang sử dụng để thử lại. Cấu hình/credential demo không dùng cho môi trường triển khai thật.
 
-2. **Kiểm tra Readiness (Kết nối cơ sở dữ liệu sẵn sàng):**
-   ```powershell
-   curl http://127.0.0.1:5000/health/ready
-   ```
-   _Kết quả kỳ vọng:_
-   ```json
-   { "database": "connected", "status": "ready" }
-   ```
+Với web/backend chạy trên cùng máy broker, host là `127.0.0.1`, port thường `1883`. ESP32 trên mạng LAN phải dùng **IPv4 LAN của máy broker**, không dùng `127.0.0.1`; máy broker phải cho phép kết nối LAN và firewall tương ứng. Xem IP bằng `ipconfig`.
 
----
+Port 1883 trong cấu hình hiện tại không phải TLS. Chỉ bật TLS trên web khi broker đã có listener TLS và chứng chỉ phù hợp; bật checkbox không tự cấu hình dịch vụ Mosquitto.
 
-### Bước 7: Khởi Chạy Các Tiến Trình Nền (Workers)
+## 5. Chạy ứng dụng hằng ngày
 
-Khi cần thử nghiệm tương tác cảm biến hoặc cảnh báo, mở 2 cửa sổ terminal riêng biệt:
+Đảm bảo PostgreSQL và broker đang chạy. Sau khi pull code có migration mới, chạy lại `migrate`; có thay đổi quyền thì chạy lại `seed_roles`.
 
-1. **MQTT Worker (Ingest dữ liệu cảm biến & dispatch lệnh):**
+Mở **3 terminal** tại thư mục gốc:
 
-   ```powershell
-   .\.venv\Scripts\python.exe backend/workers/mqtt_worker.py
-   ```
+**Terminal 1 — API Django:**
 
-2. **Alert Worker (Đánh giá luật cảnh báo nhiệt độ/độ ẩm định kỳ 10s):**
-   ```powershell
-   .\.venv\Scripts\python.exe backend/workers/alert_worker.py
-   ```
+```powershell
+.\.venv\Scripts\python.exe backend\manage.py runserver
+```
 
----
+**Terminal 2 — giao diện web:**
 
-## 3. Xử Lý Sự Cố Thường Gặp (Troubleshooting)
+```powershell
+npm.cmd --prefix frontend run dev
+```
 
-- **Lỗi `ValueError: Invalid configuration: ...` khi khởi động:**
-  - _Nguyên nhân:_ Một trong các biến `SECRET_KEY`, `JWT_SECRET_KEY`, `AUTH_LOG_HMAC_KEY` bị thiếu, ngắn hơn 32 ký tự, bị trùng nhau, hoặc vẫn giữ chuỗi mẫu `REPLACE_WITH_...`.
-  - _Khắc phục:_ Chạy lại lệnh sinh khóa 1-dòng ở **Mục 2.1** và dán đè vào `.env`.
-- **Lỗi `Database is unavailable` (HTTP 503 tại `/health/ready`):**
-  - _Nguyên nhân:_ Mật khẩu PostgreSQL trong `.env` chưa đúng, service Postgres chưa bật, hoặc chưa chạy migration.
-  - _Khắc phục:_ Mở `services.msc` kiểm tra dịch vụ `postgresql-x64-18` đang chạy, thử đăng nhập bằng psql và kiểm tra lại chuỗi `DATABASE_URL`.
-- **Lỗi `Negative test fail` hoặc `Target database must be in allowlist`:**
-  - _Nguyên nhân:_ Database kiểm thử trong `TEST_DATABASE_URL` bắt buộc phải có tên là `iot_cabinet_test` (không được trùng tên với `iot_cabinet` và không dùng database khác).
+**Terminal 3 — nhận số đo, ACK và gửi lệnh MQTT:**
+
+```powershell
+.\.venv\Scripts\python.exe backend\manage.py run_mqtt_worker
+```
+
+Mở **http://localhost:5173/** (hoặc địa chỉ Vite in ra nếu cổng đang bận). Đăng nhập bằng tài khoản đã tạo. Django chạy mặc định tại `http://127.0.0.1:8000`; Vite chuyển tiếp `/api`, `/admin` và `/static` sang Django.
+
+- Web chính: giám sát, điều khiển, tài khoản, phân quyền và cấu hình MQTT.
+- `/admin/`: Django Admin, công cụ quản trị phụ cho người có quyền ADMIN.
+- Khi chưa bật worker hoặc chưa có ESP32 gửi dữ liệu, web vẫn mở được nhưng chưa có số đo mới/ACK. Không coi mở được giao diện là đã kết nối phần cứng.
+- Dừng từng tiến trình bằng `Ctrl+C`. Sau khi sửa `.env`, khởi động lại backend và worker. Cấu hình MQTT lưu trên web được worker nhận trong vòng lặp runtime.
+- Đây là cách chạy phát triển/demo local; `runserver` và Vite dev server không phải cấu hình triển khai production.
+
+## 6. Kiểm tra và xử lý lỗi thường gặp
+
+```powershell
+.\.venv\Scripts\python.exe backend\manage.py check
+.\.venv\Scripts\python.exe backend\manage.py makemigrations --check --dry-run
+npm.cmd --prefix frontend run lint
+npm.cmd --prefix frontend run build
+```
+
+Chạy test backend bằng PostgreSQL và cấu hình test riêng:
+
+```powershell
+.\.venv\Scripts\python.exe backend\manage.py test apps --settings=config.test_settings --noinput
+```
+
+Test có thể tạo/xóa lại `iot_cabinet_django_test`; tài khoản DB cần quyền tạo database test. Không trỏ test vào DB chính, không tự tạo schema bằng SQL cũ để vượt lỗi migration.
+
+| Triệu chứng | Cách xử lý |
+| --- | --- |
+| PowerShell chặn npm.ps1 | Dùng `npm.cmd` như các lệnh trên |
+| Thiếu permission khi seed_roles | Chạy `migrate`, rồi `seed_roles` |
+| PostgreSQL báo sai mật khẩu/không kết nối | Kiểm tra dịch vụ, DB_NAME, DB_USER, DB_PASSWORD và cổng trong `.env` |
+| API MQTT settings lỗi 500 sau pull | Chạy migration mới, xem traceback backend; kiểm tra khóa Fernet nếu đã lưu credential |
+| TCP 1883 bị từ chối | Broker chưa chạy, sai địa chỉ/cổng hoặc không có listener; worker chạy không giải quyết được lỗi này |
+| Broker từ chối đăng nhập | Kiểm tra tài khoản đã được tạo thật trên đúng broker và credential tương ứng |
+| Không quản lý được tài khoản MQTT | Kiểm tra plugin Dynamic Security và quyền tài khoản quản trị broker |
+| Thiết bị không có số đo mới | Kiểm tra worker đã kết nối, IP/credential/topic của ESP32 và quyền truy cập tủ |
+| Đã gửi lệnh nhưng chưa thực hiện | Kiểm tra ACK của thiết bị; broker nhận lệnh không đồng nghĩa thiết bị đã thực thi |
+
+Quên mật khẩu admin:
+
+```powershell
+.\.venv\Scripts\python.exe backend\manage.py changepassword admin
+```
+
+Không chạy lệnh seed dữ liệu mẫu trên database đang dùng mà chưa đọc tác dụng của command. Dữ liệu demo không bắt buộc để khởi động hệ thống.

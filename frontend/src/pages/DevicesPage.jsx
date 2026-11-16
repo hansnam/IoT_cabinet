@@ -203,7 +203,7 @@ export default function DevicesPage({ user, showToast }) {
         <div className="card-heading">
           <div>
             <h2 id="devices-list-heading">Danh sách tủ mạng</h2>
-            <p>Danh sách các tủ mạng trong phạm vi phân quyền truy cập của bạn</p>
+
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span className="count">{filteredDevices.length} / {devices.length} tủ</span>
@@ -312,7 +312,7 @@ export default function DevicesPage({ user, showToast }) {
                     <td>
                       {fanStatus !== undefined && fanStatus !== null && fanStatus !== '' ? (
                         <span className={`fan-badge ${isFanOn ? 'on' : 'off'}`}>
-                          {isFanOn ? 'BẬT (ON)' : 'TẮT (OFF)'}
+                          {isFanOn ? 'Bật' : 'Tắt'}
                         </span>
                       ) : (
                         '--'
@@ -402,7 +402,7 @@ export default function DevicesPage({ user, showToast }) {
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Thêm tủ mạng mới</h3>
-              <p>Khởi tạo bản ghi định danh tủ mới trên hệ thống</p>
+
             </div>
 
             {formError && (
@@ -481,8 +481,7 @@ export default function DevicesPage({ user, showToast }) {
               <div className="notice-box info" style={{ marginTop: '12px' }}>
                 <span>ℹ️</span>
                 <span>
-                  Thiết bị mới sẽ khởi tạo ở trạng thái <strong>Chờ kích hoạt (REGISTERED)</strong>.
-                  Tạo bản ghi không tự động cấp credential MQTT cho đến khi kích hoạt.
+                  Tủ mới ở trạng thái <strong>Chờ kích hoạt</strong>. Tạo tài khoản kết nối cho tủ trước khi sử dụng.
                 </span>
               </div>
 
@@ -510,7 +509,7 @@ export default function DevicesPage({ user, showToast }) {
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Chỉnh sửa tủ mạng: {selectedDevice.id}</h3>
-              <p>Cập nhật tên, phiên bản và trạng thái vòng đời hoạt động</p>
+
             </div>
 
             {formError && (
@@ -524,7 +523,7 @@ export default function DevicesPage({ user, showToast }) {
               <div className="form-group">
                 <label>Mã định danh tủ</label>
                 <input type="text" disabled value={selectedDevice.id} />
-                <small className="field-hint">Mã định danh tủ đã khóa, không thể thay đổi.</small>
+                <small className="field-hint">Không thể đổi mã tủ sau khi tạo.</small>
               </div>
 
               <div className="form-group">

@@ -121,7 +121,7 @@ export default function ProfilePage({ user, onUserUpdated, onPasswordChangedSucc
 
         <form onSubmit={handleProfileSubmit} className="profile-form">
           <div className="form-field">
-            <label htmlFor="input-username">Tên đăng nhập (Username)</label>
+            <label htmlFor="input-username">Tên đăng nhập</label>
             <input
               id="input-username"
               type="text"

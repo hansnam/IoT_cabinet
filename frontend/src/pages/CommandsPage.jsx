@@ -76,7 +76,7 @@ export default function CommandsPage() {
         <div className="card-heading">
           <div>
             <h2 id="commands-heading">Lịch sử phát lệnh điều khiển</h2>
-            <p>Theo dõi tiến trình gửi lệnh từ người dùng tới máy chủ và phản hồi từ thiết bị</p>
+
           </div>
           <span className="count">{filteredCommands.length} / {commands.length} lệnh</span>
         </div>
@@ -92,13 +92,13 @@ export default function CommandsPage() {
             aria-label="Lọc theo trạng thái lệnh"
           >
             <option value="all">Tất cả trạng thái lệnh</option>
-            <option value="PENDING">Chờ gửi (PENDING)</option>
-            <option value="SENT">Đã gửi tới máy chủ (SENT)</option>
-            <option value="APPLIED">Đã thực hiện (APPLIED / ACKED)</option>
-            <option value="APPLIED_LATE">Thực hiện trễ (APPLIED_LATE)</option>
-            <option value="FAILED">Thất bại (FAILED)</option>
-            <option value="TIMEOUT">Chưa nhận phản hồi (TIMEOUT)</option>
-            <option value="CANCELLED">Đã hủy (CANCELLED)</option>
+            <option value="PENDING">Chờ gửi</option>
+            <option value="SENT">Đã gửi tới máy chủ</option>
+            <option value="APPLIED">Đã thực hiện</option>
+            <option value="APPLIED_LATE">Thực hiện trễ</option>
+            <option value="FAILED">Thất bại</option>
+            <option value="TIMEOUT">Chưa nhận phản hồi</option>
+            <option value="CANCELLED">Đã hủy</option>
           </select>
         </div>
 

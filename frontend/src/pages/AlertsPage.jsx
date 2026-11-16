@@ -111,7 +111,7 @@ export default function AlertsPage({ showToast }) {
         <div className="card-heading">
           <div>
             <h2 id="alerts-heading">Danh sách cảnh báo & Xử lý sự cố</h2>
-            <p>Theo dõi, xác nhận đã xem (ACK) và đánh dấu đã xử lý (Resolve) các cảnh báo hệ thống</p>
+
           </div>
           <span className="count">{filteredAlerts.length} / {alerts.length} kết quả</span>
         </div>
@@ -224,7 +224,7 @@ export default function AlertsPage({ showToast }) {
                             onClick={() => handleAlertAction(alertId, 'acknowledge')}
                             title={!canOperateThisDevice ? 'Bạn không có quyền thao tác tủ này' : 'Xác nhận đã xem sự cố'}
                           >
-                            Xác nhận (ACK)
+                            Xác nhận đã xem
                           </button>
                         )}
                         {!isClosed && (

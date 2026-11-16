@@ -212,7 +212,7 @@ export default function OverviewPage() {
         <div className="card-heading">
           <div>
             <h2 id="recent-alerts-heading">Cảnh báo mới nhất</h2>
-            <p>Các sự cố vừa kích hoạt cần người vận hành xác nhận và xử lý</p>
+
           </div>
           <Link to="/alerts" className="btn btn-outline btn-sm">
             Xem toàn bộ cảnh báo ({openAlerts.length}) →

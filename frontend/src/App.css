@@ -1380,3 +1380,9 @@ td small {
     opacity: 1;
   }
 }
+.control-mode-hint {
+  margin: 12px 0 20px;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}

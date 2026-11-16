@@ -53,16 +53,27 @@ export default function DeviceDetailPage({ user, showToast }) {
         if (!active) return
         const terminal = ['APPLIED', 'APPLIED_LATE', 'ACKED', 'FAILED', 'TIMEOUT', 'CANCELLED'].includes(command.status)
         setCommandFeedback({ type: ['APPLIED', 'APPLIED_LATE', 'ACKED'].includes(command.status) ? 'success' : terminal ? 'error' : 'info', message: translateCommandStatus(command.status) })
-        if (terminal) return
+        if (terminal) {
+          // Chỉ cập nhật chế độ theo trạng thái thiết bị đã xác nhận, không đoán từ nút vừa bấm.
+          const latestDevice = await api(`/devices/${encodeURIComponent(id)}/`)
+          if (active) {
+            setDevice(latestDevice)
+            setPendingCommandId(null)
+          }
+          return
+        }
       } catch (error) {
-        if (active) setCommandFeedback({ type: 'error', message: error.message })
+        if (active) {
+          setCommandFeedback({ type: 'error', message: error.message })
+          setPendingCommandId(null)
+        }
         return
       }
       if (active) timer = setTimeout(check, 3000)
     }
     check()
     return () => { active = false; clearTimeout(timer) }
-  }, [pendingCommandId])
+  }, [pendingCommandId, id])
 
   // Tab chức năng trong chi tiết tủ: 'control' | 'config' | 'telemetry'
   const [activeTab, setActiveTab] = useState('control')
@@ -322,7 +333,7 @@ export default function DeviceDetailPage({ user, showToast }) {
 
       setConfigFeedback({
         type: 'success',
-        message: 'Đã lưu cấu hình mong muốn! Đang theo dõi phản hồi áp dụng (ACK) từ tủ mạng…',
+        message: 'Đã lưu cấu hình. Đang chờ thiết bị xác nhận…',
       })
       showToast?.('Đã lưu cấu hình tủ thành công.', 'success')
       await loadDeviceDetail()
@@ -416,8 +427,10 @@ export default function DeviceDetailPage({ user, showToast }) {
   )
   const fanStatus = device?.latest_fan_status
   const isFanOn = fanStatus === 'ON' || fanStatus === true || fanStatus === 1
-  const mode = device?.latest_mode || 'AUTO'
+  const mode = device?.latest_mode
   const isAuto = mode === 'AUTO'
+  const isManual = mode === 'MANUAL'
+  const commandBusy = actionLoading || Boolean(pendingCommandId)
 
   return (
     <div className="device-detail-page">
@@ -500,7 +513,7 @@ export default function DeviceDetailPage({ user, showToast }) {
             <span className="info-label">Trạng thái quạt hiện tại</span>
             <strong className="info-value">
               <span className={`fan-badge ${isFanOn ? 'on' : 'off'}`}>
-                {isFanOn ? 'BẬT (ON)' : 'TẮT (OFF)'}
+                {isFanOn ? 'Bật' : 'Tắt'}
               </span>
             </strong>
           </div>
@@ -554,11 +567,10 @@ export default function DeviceDetailPage({ user, showToast }) {
         <section className="card control-tab-card" aria-label="Điều khiển quạt và chế độ vận hành">
           <div className="card-heading">
             <div>
-              <h2>Bảng điều khiển quạt & Chế độ vận hành</h2>
-              <p>Chọn chế độ vận hành và bật/tắt quạt làm mát tủ</p>
+              <h2>Điều khiển quạt</h2>
             </div>
             <span className={`status-pill ${device?.can_operate ? 'online' : 'offline'}`}>
-              {device?.can_operate ? 'Cho phép phát lệnh' : 'Chỉ xem - Bị khóa'}
+              {device?.can_operate ? 'Có thể điều khiển' : 'Chỉ xem'}
             </span>
           </div>
 
@@ -570,23 +582,12 @@ export default function DeviceDetailPage({ user, showToast }) {
           )}
 
           {/* Hộp hướng dẫn giải thích rõ ràng chế độ AUTO vs MANUAL */}
-          <div className={`control-guide-box ${isAuto ? 'guide-auto' : 'guide-manual'}`}>
-            {isAuto ? (
-              <>
-                <strong>💡 Chế độ hiện tại: Tự động (AUTO)</strong>
-                <p>
-                  Quạt tản nhiệt đang tự động bật khi nhiệt độ tủ vượt ngưỡng cài đặt và tắt khi hạ nhiệt an toàn.
-                  Nếu bạn muốn bật hoặc tắt quạt theo ý muốn ngay bây giờ, hãy bấm chuyển sang chế độ <strong>Thủ công (MANUAL)</strong>.
-                </p>
-              </>
-            ) : (
-              <>
-                <strong>⚠️ Chế độ hiện tại: Thủ công (MANUAL)</strong>
-                <p>
-                  Bạn có thể chủ động Bật hoặc Tắt quạt bên dưới. Hệ thống sẽ tự động chuyển về chế độ Tự động sau thời gian cài đặt an toàn.
-                </p>
-              </>
-            )}
+          <div className="control-mode-hint" role="status">
+            {isAuto
+              ? 'Đang ở chế độ Tự động. Chuyển sang Thủ công để bật/tắt quạt.'
+              : isManual
+                ? 'Đang ở chế độ Thủ công. Bạn có thể bật/tắt quạt bên dưới.'
+                : 'Chưa nhận được chế độ vận hành của thiết bị.'}
           </div>
 
           {/* Nút chuyển đổi chế độ */}
@@ -596,18 +597,18 @@ export default function DeviceDetailPage({ user, showToast }) {
               <button
                 type="button"
                 className={`btn ${isAuto ? 'btn-primary' : 'btn-outline'}`}
-                disabled={actionLoading || !device?.can_operate || isAuto}
+                disabled={commandBusy || !device?.can_operate || isAuto}
                 onClick={() => handleSendCommand({ mode: 'AUTO' }, 'CHUYỂN CHẾ ĐỘ TỰ ĐỘNG')}
               >
-                Tự động (AUTO)
+                Tự động
               </button>
               <button
                 type="button"
-                className={`btn ${!isAuto ? 'btn-primary' : 'btn-outline'}`}
-                disabled={actionLoading || !device?.can_operate || !isAuto}
+                className={`btn ${isManual ? 'btn-primary' : 'btn-outline'}`}
+                disabled={commandBusy || !device?.can_operate || isManual}
                 onClick={() => handleSendCommand({ mode: 'MANUAL' }, 'CHUYỂN CHẾ ĐỘ THỦ CÔNG')}
               >
-                Thủ công (MANUAL)
+                Thủ công
               </button>
             </div>
           </div>
@@ -619,18 +620,18 @@ export default function DeviceDetailPage({ user, showToast }) {
               <button
                 type="button"
                 className="btn btn-success"
-                disabled={actionLoading || !device?.can_operate || isFanOn}
+                disabled={commandBusy || !device?.can_operate || !isManual || isFanOn}
                 onClick={() => handleSendCommand({ command: 'SET_FAN', fan: 'ON' }, 'BẬT QUẠT')}
               >
-                ⚡ Bật quạt (ON)
+                Bật quạt
               </button>
               <button
                 type="button"
                 className="btn btn-outline"
-                disabled={actionLoading || !device?.can_operate || !isFanOn}
+                disabled={commandBusy || !device?.can_operate || !isManual || !isFanOn}
                 onClick={() => handleSendCommand({ command: 'SET_FAN', fan: 'OFF' }, 'TẮT QUẠT')}
               >
-                Tắt quạt (OFF)
+                Tắt quạt
               </button>
             </div>
             {!device?.can_operate && (
@@ -648,7 +649,7 @@ export default function DeviceDetailPage({ user, showToast }) {
           <div className="card-heading">
             <div>
               <h2>Cấu hình ngưỡng hoạt động của tủ</h2>
-              <p>Thiết lập ngưỡng kích hoạt cảnh báo, điều kiện tự động bật/tắt quạt và chu kỳ gửi số đo</p>
+
             </div>
           </div>
 
@@ -678,13 +679,13 @@ export default function DeviceDetailPage({ user, showToast }) {
               JSON.stringify(device.desired_config) === JSON.stringify(device.applied_config) ? (
                 <span className="status-pill online">✓ Thiết bị đã áp dụng</span>
               ) : (
-                <span className="status-pill pending">⏱️ Đang chờ phần cứng áp dụng (Pending ACK)</span>
+                <span className="status-pill pending">Đang chờ thiết bị xác nhận</span>
               )}
             </div>
 
             <div className="config-grid">
               <div className="info-item">
-                <span className="info-label">Cấu hình mong muốn đã lưu (Desired)</span>
+                <span className="info-label">Cấu hình đã lưu</span>
                 <span className="info-value" style={{ fontSize: '13px' }}>
                   {device?.desired_config && Object.keys(device.desired_config).length > 0 ? (
                     <>
@@ -699,7 +700,7 @@ export default function DeviceDetailPage({ user, showToast }) {
               </div>
 
               <div className="info-item">
-                <span className="info-label">Phần cứng xác nhận áp dụng (Applied)</span>
+                <span className="info-label">Cấu hình thiết bị đã xác nhận</span>
                 <span className="info-value" style={{ fontSize: '13px' }}>
                   {device?.applied_config && Object.keys(device.applied_config).length > 0 ? (
                     <>
@@ -753,7 +754,7 @@ export default function DeviceDetailPage({ user, showToast }) {
                   value={configForm.fan_on_c}
                   onChange={(e) => setConfigForm({ ...configForm, fan_on_c: e.target.value })}
                 />
-                <small className="field-hint">Khi ở chế độ Tự động, quạt sẽ chạy khi nhiệt độ đạt mức này.</small>
+                <small className="field-hint">Quạt tự bật khi đạt ngưỡng này.</small>
               </div>
 
               <div className="form-field">
@@ -780,7 +781,7 @@ export default function DeviceDetailPage({ user, showToast }) {
                   value={configForm.telemetry_interval_s}
                   onChange={(e) => setConfigForm({ ...configForm, telemetry_interval_s: e.target.value })}
                 />
-                <small className="field-hint">Khoảng thời gian phần cứng tủ đo và gửi dữ liệu lên máy chủ.</small>
+                <small className="field-hint">Khoảng thời gian giữa hai lần gửi số đo.</small>
               </div>
 
               <div className="form-field">
@@ -794,7 +795,7 @@ export default function DeviceDetailPage({ user, showToast }) {
                   value={configForm.manual_timeout_s}
                   onChange={(e) => setConfigForm({ ...configForm, manual_timeout_s: e.target.value })}
                 />
-                <small className="field-hint">Tự động trả về Tự động sau thời gian này để đảm bảo an toàn.</small>
+                <small className="field-hint">Hết thời gian này, quạt trở về chế độ Tự động.</small>
               </div>
             </div>
 
@@ -812,7 +813,7 @@ export default function DeviceDetailPage({ user, showToast }) {
                 onClick={handleResyncConfig}
                 title="Gửi lại đúng snapshot cấu hình mà thiết bị đã từng xác nhận (APPLIED)"
               >
-                🔄 Gửi lại cấu hình đã xác nhận (Resync)
+                Gửi lại cấu hình đã xác nhận
               </button>
               <button
                 type="submit"
@@ -832,7 +833,7 @@ export default function DeviceDetailPage({ user, showToast }) {
           <div className="card-heading">
             <div>
               <h2>Lịch sử số đo nhiệt độ & độ ẩm của tủ {device?.name || id}</h2>
-              <p>Các lần đo cảm biến được thiết bị ghi nhận và gửi về hệ thống</p>
+
             </div>
             <button
               type="button"
@@ -912,7 +913,7 @@ export default function DeviceDetailPage({ user, showToast }) {
                       <td>
                         {fVal !== undefined && fVal !== null && fVal !== '' ? (
                           <span className={`fan-badge ${isOn ? 'on' : 'off'}`}>
-                            {isOn ? 'BẬT (ON)' : 'TẮT (OFF)'}
+                            {isOn ? 'Bật' : 'Tắt'}
                           </span>
                         ) : (
                           '--'
@@ -957,8 +958,8 @@ export default function DeviceDetailPage({ user, showToast }) {
         <section className="card mqtt-tab-card" aria-label="Quản lý tài khoản kết nối MQTT của tủ">
           <div className="card-heading">
             <div>
-              <h2>Tài khoản kết nối Mosquitto MQTT của tủ {device?.name || id}</h2>
-              <p>Quản lý định danh kết nối, phân quyền topic (ACL) và khóa/mở tài khoản trên Broker</p>
+              <h2>Tài khoản kết nối của tủ {device?.name || id}</h2>
+
             </div>
             <button
               type="button"
@@ -973,7 +974,7 @@ export default function DeviceDetailPage({ user, showToast }) {
           <div className="notice-box info" style={{ marginBottom: '20px' }}>
             <span>ℹ️</span>
             <span>
-              <strong>Phân biệt khái niệm:</strong> Đây là tài khoản MQTT để vi điều khiển ESP32 trong tủ mạng kết nối tới Mosquitto Broker, khác biệt hoàn toàn với tài khoản đăng nhập web của người dùng.
+              Tài khoản này giúp tủ kết nối với hệ thống, không dùng để đăng nhập web.
             </span>
           </div>
 
@@ -986,7 +987,7 @@ export default function DeviceDetailPage({ user, showToast }) {
 
           {mqttLoading && !mqttMeta ? (
             <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>
-              Đang truy vấn thông tin tài khoản từ Mosquitto Broker…
+              Đang tải thông tin kết nối…
             </div>
           ) : (
             <>
@@ -1000,7 +1001,7 @@ export default function DeviceDetailPage({ user, showToast }) {
                 </div>
 
                 <div className="info-item">
-                  <span className="info-label">Tên tài khoản (Username)</span>
+                  <span className="info-label">Tên tài khoản</span>
                   <strong className="info-value">@{mqttMeta?.username}</strong>
                 </div>
 
@@ -1019,9 +1020,9 @@ export default function DeviceDetailPage({ user, showToast }) {
                     ) : !mqttMeta?.account_exists ? (
                       <span className="status-pill offline">Chưa khởi tạo trên Broker</span>
                     ) : mqttMeta?.is_disabled ? (
-                      <span className="status-pill timeout">Đang bị khóa (Disabled)</span>
+                      <span className="status-pill timeout">Đang bị khóa</span>
                     ) : (
-                      <span className="status-pill online">Đang hoạt động (Enabled)</span>
+                      <span className="status-pill online">Đang hoạt động</span>
                     )}
                   </div>
                 </div>
@@ -1038,10 +1039,10 @@ export default function DeviceDetailPage({ user, showToast }) {
                 }}
               >
                 <strong style={{ display: 'block', marginBottom: '8px', fontSize: '14px', color: 'var(--text-main)' }}>
-                  Phân quyền Topic (Mosquitto Dynamic Security ACL)
+                  Chi tiết kết nối nâng cao
                 </strong>
                 <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-                  Tủ mạng chỉ có quyền xuất bản/nhận lệnh trên các topic riêng của chính nó; tuyệt đối không cấp quyền wildcard (#/+).
+                  Tủ chỉ được gửi dữ liệu và nhận lệnh của chính mình.
                 </p>
                 <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '13px', lineHeight: 1.8 }}>
                   <li>
@@ -1122,7 +1123,7 @@ export default function DeviceDetailPage({ user, showToast }) {
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Khởi tạo tài khoản MQTT cho tủ {id}</h3>
-              <p>Tạo Role phân quyền topic và Client định danh trên Mosquitto Broker</p>
+              <p>Tạo tài khoản để tủ gửi số đo và nhận lệnh điều khiển.</p>
             </div>
 
             <form onSubmit={handleProvisionMqtt}>
@@ -1167,13 +1168,13 @@ export default function DeviceDetailPage({ user, showToast }) {
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Đặt lại mật khẩu MQTT cho tủ {id}</h3>
-              <p>Đổi mật khẩu kết nối trên Mosquitto Broker</p>
+              <p>Đặt mật khẩu kết nối mới cho tủ.</p>
             </div>
 
             <div className="notice-box warning" style={{ marginBottom: '16px' }}>
               <span>⚠️</span>
               <span>
-                <strong>Cảnh báo:</strong> Sau khi đổi mật khẩu trên Broker, vi điều khiển ESP32 trong tủ sẽ bị ngắt kết nối cho tới khi nạp mật khẩu mới vào firmware.
+                <strong>Cảnh báo:</strong> Sau khi đổi mật khẩu, cần cập nhật mật khẩu mới trên thiết bị để tủ kết nối lại.
               </span>
             </div>
 
@@ -1231,7 +1232,7 @@ export default function DeviceDetailPage({ user, showToast }) {
             </div>
 
             <div className="form-group">
-              <label>Tên đăng nhập (Username / Client ID)</label>
+              <label>Tài khoản và mã kết nối thiết bị</label>
               <input type="text" disabled value={secretResult.username} />
             </div>
 

@@ -320,7 +320,7 @@ export default function AppLayout({
                       onClick={() => setAccountMenuOpen(false)}
                     >
                       <span className="menu-item-icon" aria-hidden="true">⚙️</span>
-                      <span className="menu-item-text">Trang quản trị Django</span>
+                      <span className="menu-item-text">Quản trị nâng cao</span>
                     </a>
                   )}
 
