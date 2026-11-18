@@ -12,7 +12,7 @@
 #define WIFI_PASSWORD       "YOUR_WIFI_PASSWORD"
 
 // Cấu hình MQTT Broker (Dùng IP LAN của laptop chạy Docker Mosquitto)
-#define MQTT_HOST           "192.168.1.100"
+#define MQTT_HOST           "YOUR_WIRELESS_WIFI_IPV4"
 #define MQTT_PORT           1883
 #define MQTT_USERNAME       "cabinet-001"
 #define MQTT_PASSWORD       "YOUR_PROVISIONED_SECRET"
