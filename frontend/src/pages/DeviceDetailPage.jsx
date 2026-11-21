@@ -17,6 +17,7 @@ import {
   translateCommandStatus,
 } from '../api.js'
 import Pagination from '../components/Pagination.jsx'
+import CopilotChat from '../components/CopilotChat.jsx'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 
@@ -85,8 +86,11 @@ export default function DeviceDetailPage({ user, showToast }) {
     return () => { active = false; clearTimeout(timer) }
   }, [pendingCommandId, id])
 
-  // Tab chức năng trong chi tiết tủ: 'control' | 'config' | 'telemetry'
+  // Tab chức năng trong chi tiết tủ: 'control' | 'config' | 'telemetry' | 'mqtt' | 'copilot'
   const [activeTab, setActiveTab] = useState('control')
+
+  // Trạng thái AI Phát hiện bất thường (Hướng 1)
+  const [anomalyStatus, setAnomalyStatus] = useState(null)
 
   // Form cấu hình tủ
   const [configForm, setConfigForm] = useState({
@@ -104,32 +108,34 @@ export default function DeviceDetailPage({ user, showToast }) {
   const [fromTime, setFromTime] = useState('')
   const [toTime, setToTime] = useState('')
 
-  // Tải chi tiết tủ và lịch sử viễn trắc
+  // Tải chi tiết tủ và lịch sử viễn trắc (kèm đánh giá AI Hướng 1 cô lập lỗi)
   const loadDeviceDetail = useCallback(async () => {
     if (!id) return
     try {
-      const [devData, telData] = await Promise.all([
+      const [devData, telData, anomData] = await Promise.all([
         api(`/devices/${encodeURIComponent(id)}/`),
         api(`/telemetry/?device_id=${encodeURIComponent(id)}&limit=50${fromTime ? '&from_time=' + encodeURIComponent(new Date(fromTime).toISOString()) : ''}${toTime ? '&to_time=' + encodeURIComponent(new Date(toTime).toISOString()) : ''}`),
+        api(`/devices/${encodeURIComponent(id)}/anomaly-status/`).catch(() => null),
       ])
       setDevice(devData)
       setTelemetry(asList(telData))
+      if (anomData) setAnomalyStatus(anomData)
       setError('')
 
       // Đồng bộ form cấu hình nếu có desired_config
       const cfg = devData.desired_config || {}
       if (initializedDevice.current !== id) {
-      initializedDevice.current = id
-      setConfigForm((prev) => ({
-        temp_alert_c: cfg.temp_alert_c ?? cfg.max_temp ?? prev.temp_alert_c,
-        humidity_alert_pct: cfg.humidity_alert_pct ?? cfg.max_hum ?? prev.humidity_alert_pct,
-        fan_on_c: cfg.fan_on_c ?? prev.fan_on_c,
-        fan_off_c: cfg.fan_off_c ?? prev.fan_off_c,
-        telemetry_interval_s: cfg.telemetry_interval_ms
-          ? Math.round(cfg.telemetry_interval_ms / 1000)
-          : prev.telemetry_interval_s,
-        manual_timeout_s: cfg.manual_timeout_s ?? prev.manual_timeout_s,
-      }))
+        initializedDevice.current = id
+        setConfigForm((prev) => ({
+          temp_alert_c: cfg.temp_alert_c ?? cfg.max_temp ?? prev.temp_alert_c,
+          humidity_alert_pct: cfg.humidity_alert_pct ?? cfg.max_hum ?? prev.humidity_alert_pct,
+          fan_on_c: cfg.fan_on_c ?? prev.fan_on_c,
+          fan_off_c: cfg.fan_off_c ?? prev.fan_off_c,
+          telemetry_interval_s: cfg.telemetry_interval_ms
+            ? Math.round(cfg.telemetry_interval_ms / 1000)
+            : prev.telemetry_interval_s,
+          manual_timeout_s: cfg.manual_timeout_s ?? prev.manual_timeout_s,
+        }))
       }
     } catch (err) {
       setError(err.message || 'Không thể tải thông tin chi tiết tủ.')
@@ -452,10 +458,10 @@ export default function DeviceDetailPage({ user, showToast }) {
       return {
         timeLabel: ts
           ? new Date(ts).toLocaleTimeString('vi-VN', {
-              hour: '2-digit',
-              minute: '2-digit',
-              second: '2-digit',
-            })
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          })
           : '--',
         temperature: tempVal !== null && tempVal !== undefined ? Number(tempVal) : null,
         humidity: humVal !== null && humVal !== undefined ? Number(humVal) : null,
@@ -506,12 +512,12 @@ export default function DeviceDetailPage({ user, showToast }) {
               {device?.status === 'ACTIVE'
                 ? 'Đang hoạt động'
                 : device?.status === 'REGISTERED'
-                ? 'Mới đăng ký'
-                : device?.status === 'LOCKED'
-                ? 'Tạm khóa'
-                : device?.status === 'DECOMMISSIONED'
-                ? 'Ngừng sử dụng'
-                : format(device?.status)}
+                  ? 'Mới đăng ký'
+                  : device?.status === 'LOCKED'
+                    ? 'Tạm khóa'
+                    : device?.status === 'DECOMMISSIONED'
+                      ? 'Ngừng sử dụng'
+                      : format(device?.status)}
             </strong>
           </div>
           <div className="info-item">
@@ -550,6 +556,85 @@ export default function DeviceDetailPage({ user, showToast }) {
           </div>
         </div>
       </section>
+
+      {/* Khối Chẩn đoán Bất thường AI (Hướng 1) hiển thị nổi bật ngay đầu trang Chi tiết tủ */}
+      {anomalyStatus && (
+        <div
+          className={`ai-anomaly-card status-${String(anomalyStatus.status || 'INSUFFICIENT_DATA').toLowerCase()}`}
+          role="region"
+          aria-label="Tổng quan đánh giá bất thường AI"
+          style={{ marginBottom: '20px' }}
+        >
+          <div className="ai-anomaly-header">
+            <div className="ai-anomaly-title-group">
+              <span className="ai-anomaly-badge">
+                {anomalyStatus.status === 'WARNING'
+                  ? `⚠️ CẢNH BÁO AI: ${anomalyStatus.anomaly_type === 'COOLING_DEGRADATION' ? 'Suy giảm hiệu suất làm mát' : 'Số đo cảm biến bất thường'}`
+                  : anomalyStatus.status === 'NORMAL'
+                    ? '✓ AI ĐÁNH GIÁ: VẬN HÀNH BÌNH THƯỜNG'
+                    : anomalyStatus.status === 'NOT_APPLICABLE'
+                      ? '⏸️ AI TẠM NGƯNG ĐÁNH GIÁ'
+                      : '⏳ AI ĐANG THU THẬP DỮ LIỆU'}
+              </span>
+              {anomalyStatus.config_pending && (
+                <span className="status-pill pending" style={{ fontSize: '11px' }}>
+                  Cấu hình mới đang chờ thiết bị ACK
+                </span>
+              )}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              {/* <span className="ai-anomaly-meta">
+                {anomalyStatus.ml_model_loaded
+                  ? 'IsolationForest + Luật vật lý'
+                  : 'Luật định lượng'}
+                {' · '}
+                {anomalyStatus.sample_count ?? 0} mẫu / {Math.round((anomalyStatus.window_seconds || 600) / 60)} phút
+              </span> */}
+              {activeTab !== 'copilot' && (
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => setActiveTab('copilot')}
+                >
+                  🤖 Hỏi Trợ lý AI sự cố →
+                </button>
+              )}
+            </div>
+          </div>
+
+          <p className="ai-anomaly-summary">{anomalyStatus.summary}</p>
+
+          {(anomalyStatus.status === 'NORMAL' || anomalyStatus.status === 'WARNING') && anomalyStatus.metrics && (
+            <div className="ai-metrics-row">
+              <span>
+                <strong>Độ dốc nhiệt:</strong> {Number(anomalyStatus.metrics.temp_slope_per_min ?? 0).toFixed(2)} °C/phút
+              </span>
+              <span>
+                <strong>Tỷ lệ bật quạt:</strong> {Math.round(Number(anomalyStatus.metrics.fan_on_ratio ?? 0) * 100)}%
+              </span>
+              <span>
+                <strong>Quạt ON liên tục:</strong> {Number(anomalyStatus.metrics.fan_on_duration_min ?? 0).toFixed(1)} phút
+              </span>
+              <span>
+                <strong>Độ lệch chuẩn T:</strong> {Number(anomalyStatus.metrics.temp_std ?? 0).toFixed(2)} °C
+              </span>
+              <span>
+                <strong>Bước nhảy T cực đại:</strong> {Number(anomalyStatus.metrics.max_step_temp ?? 0).toFixed(2)} °C
+              </span>
+              {anomalyStatus.ml_score !== null && anomalyStatus.ml_score !== undefined && (
+                <span>
+                  <strong>Điểm ML:</strong> {Number(anomalyStatus.ml_score).toFixed(3)}
+                </span>
+              )}
+              {anomalyStatus.config_in_effect && (
+                <span>
+                  <strong>Ngưỡng quạt hiệu lực:</strong> Bật {anomalyStatus.config_in_effect.fan_on_c}°C / Tắt {anomalyStatus.config_in_effect.fan_off_c}°C
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Thanh chuyển Tab chức năng */}
       <div className="detail-tabs-bar" role="tablist">
@@ -591,6 +676,15 @@ export default function DeviceDetailPage({ user, showToast }) {
             📡 Tài khoản MQTT Broker
           </button>
         )}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'copilot'}
+          className={`tab-btn ${activeTab === 'copilot' ? 'active' : ''}`}
+          onClick={() => setActiveTab('copilot')}
+        >
+          🤖 Trợ lý AI sự cố
+        </button>
       </div>
 
       {/* TAB 1: ĐIỀU KHIỂN QUẠT & CHẾ ĐỘ */}
@@ -706,8 +800,8 @@ export default function DeviceDetailPage({ user, showToast }) {
                 Đối chiếu trạng thái cấu hình tủ
               </strong>
               {device?.applied_config &&
-              Object.keys(device.applied_config).length > 0 &&
-              JSON.stringify(device.desired_config) === JSON.stringify(device.applied_config) ? (
+                Object.keys(device.applied_config).length > 0 &&
+                JSON.stringify(device.desired_config) === JSON.stringify(device.applied_config) ? (
                 <span className="status-pill online">✓ Thiết bị đã áp dụng</span>
               ) : (
                 <span className="status-pill pending">Đang chờ thiết bị xác nhận</span>
@@ -876,6 +970,73 @@ export default function DeviceDetailPage({ user, showToast }) {
             </button>
           </div>
 
+          {/* Thẻ Đánh giá bất thường & Bảo trì dự đoán AI (Hướng 1) */}
+          {anomalyStatus && (
+            <div
+              className={`ai-anomaly-card status-${String(anomalyStatus.status || 'INSUFFICIENT_DATA').toLowerCase()}`}
+              role="region"
+              aria-label="Đánh giá bất thường AI"
+            >
+              <div className="ai-anomaly-header">
+                <div className="ai-anomaly-title-group">
+                  <span className="ai-anomaly-badge">
+                    {anomalyStatus.status === 'WARNING'
+                      ? `⚠️ CẢNH BÁO AI: ${anomalyStatus.anomaly_type === 'COOLING_DEGRADATION' ? 'Suy giảm hiệu suất làm mát' : 'Số đo cảm biến bất thường'}`
+                      : anomalyStatus.status === 'NORMAL'
+                        ? '✓ AI ĐÁNH GIÁ: VẬN HÀNH BÌNH THƯỜNG'
+                        : anomalyStatus.status === 'NOT_APPLICABLE'
+                          ? '⏸️ AI TẠM NGƯNG ĐÁNH GIÁ'
+                          : '⏳ AI ĐANG THU THẬP DỮ LIỆU'}
+                  </span>
+                  {anomalyStatus.config_pending && (
+                    <span className="status-pill pending" style={{ fontSize: '11px' }}>
+                      Cấu hình mới đang chờ thiết bị ACK
+                    </span>
+                  )}
+                </div>
+                <span className="ai-anomaly-meta">
+                  {anomalyStatus.ml_model_loaded
+                    ? 'Mô hình: IsolationForest + Luật vật lý'
+                    : 'Chế độ: Đang dùng luật định lượng (chưa nạp model ML)'}
+                  {' · '}
+                  {anomalyStatus.sample_count ?? 0} mẫu / {Math.round((anomalyStatus.window_seconds || 600) / 60)} phút
+                </span>
+              </div>
+
+              <p className="ai-anomaly-summary">{anomalyStatus.summary}</p>
+
+              {(anomalyStatus.status === 'NORMAL' || anomalyStatus.status === 'WARNING') && anomalyStatus.metrics && (
+                <div className="ai-metrics-row">
+                  <span>
+                    <strong>Độ dốc nhiệt:</strong> {Number(anomalyStatus.metrics.temp_slope_per_min ?? 0).toFixed(2)} °C/phút
+                  </span>
+                  <span>
+                    <strong>Tỷ lệ bật quạt:</strong> {Math.round(Number(anomalyStatus.metrics.fan_on_ratio ?? 0) * 100)}%
+                  </span>
+                  <span>
+                    <strong>Quạt ON liên tục:</strong> {Number(anomalyStatus.metrics.fan_on_duration_min ?? 0).toFixed(1)} phút
+                  </span>
+                  <span>
+                    <strong>Độ lệch chuẩn T:</strong> {Number(anomalyStatus.metrics.temp_std ?? 0).toFixed(2)} °C
+                  </span>
+                  <span>
+                    <strong>Bước nhảy T cực đại:</strong> {Number(anomalyStatus.metrics.max_step_temp ?? 0).toFixed(2)} °C
+                  </span>
+                  {anomalyStatus.ml_score !== null && anomalyStatus.ml_score !== undefined && (
+                    <span>
+                      <strong>Điểm ML:</strong> {Number(anomalyStatus.ml_score).toFixed(3)}
+                    </span>
+                  )}
+                  {anomalyStatus.config_in_effect && (
+                    <span>
+                      <strong>Ngưỡng quạt hiệu lực:</strong> Bật {anomalyStatus.config_in_effect.fan_on_c}°C / Tắt {anomalyStatus.config_in_effect.fan_off_c}°C
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Bộ lọc khoảng thời gian */}
           <div className="filters" style={{ flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -985,35 +1146,35 @@ export default function DeviceDetailPage({ user, showToast }) {
                 {telemetry
                   .slice((telemetryPage - 1) * telemetryPageSize, telemetryPage * telemetryPageSize)
                   .map((item, idx) => {
-                  const tVal = item.temperature ?? item.temperature_c
-                  const hVal = item.humidity ?? item.humidity_pct
-                  const fVal = item.fan_status !== undefined ? item.fan_status : item.fan_output
-                  const isOn = fVal === 'ON' || fVal === true || fVal === 1
+                    const tVal = item.temperature ?? item.temperature_c
+                    const hVal = item.humidity ?? item.humidity_pct
+                    const fVal = item.fan_status !== undefined ? item.fan_status : item.fan_output
+                    const isOn = fVal === 'ON' || fVal === true || fVal === 1
 
-                  return (
-                    <tr key={item.id || item.measured_at || idx}>
-                      <td>{formatDate(item.measured_at || item.received_at)}</td>
-                      <td className="temp-text">{format(tVal)} °C</td>
-                      <td className="humid-text">{format(hVal)} %</td>
-                      <td>
-                        {fVal !== undefined && fVal !== null && fVal !== '' ? (
-                          <span className={`fan-badge ${isOn ? 'on' : 'off'}`}>
-                            {isOn ? 'Bật' : 'Tắt'}
-                          </span>
-                        ) : (
-                          '--'
-                        )}
-                      </td>
-                      <td>
-                        {item.mode ? (
-                          <span>{item.mode === 'AUTO' ? 'Tự động' : 'Thủ công'}</span>
-                        ) : (
-                          '--'
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
+                    return (
+                      <tr key={item.id || item.measured_at || idx}>
+                        <td>{formatDate(item.measured_at || item.received_at)}</td>
+                        <td className="temp-text">{format(tVal)} °C</td>
+                        <td className="humid-text">{format(hVal)} %</td>
+                        <td>
+                          {fVal !== undefined && fVal !== null && fVal !== '' ? (
+                            <span className={`fan-badge ${isOn ? 'on' : 'off'}`}>
+                              {isOn ? 'Bật' : 'Tắt'}
+                            </span>
+                          ) : (
+                            '--'
+                          )}
+                        </td>
+                        <td>
+                          {item.mode ? (
+                            <span>{item.mode === 'AUTO' ? 'Tự động' : 'Thủ công'}</span>
+                          ) : (
+                            '--'
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
 
                 {!telemetry.length && (
                   <tr>
@@ -1200,6 +1361,11 @@ export default function DeviceDetailPage({ user, showToast }) {
             </>
           )}
         </section>
+      )}
+
+      {/* TAB 5: TRỢ LÝ AI PHÂN TÍCH SỰ CỐ (HƯỚNG 4) */}
+      {activeTab === 'copilot' && (
+        <CopilotChat deviceId={id} deviceName={device?.name || id} />
       )}
 
       {/* MODAL 1: KHỞI TẠO TÀI KHOẢN MQTT */}

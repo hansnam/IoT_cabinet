@@ -338,6 +338,40 @@ class Command(BaseCommand):
                 self.evaluate_alerts(device, temperature, humidity, fan_status, door_status, sensor_ok)
         except IntegrityError:
             logger.info("[MQTT Worker] Bỏ qua bản tin telemetry trùng lặp (DB constraint): device=%s, msg_id=%s", device_id, msg_id)
+            return
+
+        # Đánh giá bất thường AI (Hướng 1) cô lập ngoài transaction chính để không ảnh hưởng luồng Telemetry
+        if sensor_ok and getattr(settings, 'AI_ANOMALY_ENABLED', True):
+            self._run_ai_anomaly_evaluation_safely(device, measured_at)
+
+    def _run_ai_anomaly_evaluation_safely(self, device: Device, as_of):
+        """
+        Gọi đánh giá bất thường AI (Hướng 1) với cơ chế điều tiết 25 giây/tủ trong RAM
+        và cô lập hoàn toàn mọi ngoại lệ để không bao giờ làm gián đoạn Worker.
+        """
+        try:
+            cache = getattr(self, '_last_ai_eval_ts', None)
+            if cache is None:
+                cache = {}
+                self._last_ai_eval_ts = cache
+
+            eval_ts = as_of or timezone.now()
+            prev_ts = cache.get(device.id)
+            if prev_ts is not None:
+                delta_s = (eval_ts - prev_ts).total_seconds()
+                if 0.0 <= delta_s < 25.0:
+                    return
+
+            cache[device.id] = eval_ts
+            from apps.telemetry.anomaly import evaluate_and_sync_device_anomaly_alerts
+            evaluate_and_sync_device_anomaly_alerts(device, as_of=eval_ts)
+        except Exception as exc:
+            logger.warning(
+                "[MQTT Worker] Lỗi cô lập khi đánh giá AI anomaly cho tủ %s: %s",
+                device.id,
+                exc,
+                exc_info=True,
+            )
 
     def evaluate_alerts(self, device: Device, temp, hum, fan: str, door: str, sensor_ok: bool = True):
         """

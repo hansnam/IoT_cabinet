@@ -1409,3 +1409,471 @@ td small {
   font-size: 12px;
   color: var(--text-muted);
 }
+
+/* ==========================================================================
+   AI Anomaly Detection Card (Hướng 1) & AI Incident Copilot Tab (Hướng 4)
+   ========================================================================== */
+
+.ai-anomaly-card {
+  margin: 4px 0 18px;
+  padding: 14px 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ai-anomaly-card.status-normal {
+  background-color: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #166534;
+}
+
+.ai-anomaly-card.status-warning {
+  background-color: #fff7ed;
+  border-color: #fed7aa;
+  color: #9a3412;
+}
+
+.ai-anomaly-card.status-insufficient_data {
+  background-color: #f8fafc;
+  border-color: #cbd5e1;
+  color: #334155;
+}
+
+.ai-anomaly-card.status-not_applicable {
+  background-color: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #475569;
+}
+
+.ai-anomaly-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.ai-anomaly-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ai-anomaly-badge {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.ai-anomaly-meta {
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.ai-anomaly-summary {
+  margin: 4px 0 8px;
+  font-size: 13px;
+}
+
+.ai-metrics-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(15, 23, 42, 0.15);
+  font-size: 12px;
+}
+
+.copilot-quick-prompts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.copilot-quick-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.copilot-form {
+  margin-bottom: 8px;
+}
+
+.copilot-input-row {
+  display: flex;
+  gap: 10px;
+}
+
+.copilot-input-row input {
+  flex: 1;
+  height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: var(--text-main);
+}
+
+.copilot-input-row input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.copilot-char-counter {
+  margin-top: 4px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.copilot-result-card {
+  margin-top: 18px;
+  padding: 18px 20px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-subtle);
+}
+
+.copilot-result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-bottom: 12px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.copilot-severity-badge {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.copilot-severity-badge.sev-normal {
+  background-color: #dcfce7;
+  color: #166534;
+}
+
+.copilot-severity-badge.sev-attention {
+  background-color: #ffedd5;
+  color: #9a3412;
+}
+
+.copilot-severity-badge.sev-critical {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+
+.copilot-section {
+  margin-bottom: 14px;
+}
+
+.copilot-section h4 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.copilot-section p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-main);
+}
+
+.copilot-section ul {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-main);
+}
+
+.copilot-result-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* =========================================================
+   ADAPTIVE COPILOT V2 — CONVERSATIONAL CHAT THREAD & CARDS
+   ========================================================= */
+.copilot-chat-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 440px;
+  overflow-y: auto;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  background-color: #f8fafc;
+  border: 1px solid var(--border-color);
+}
+
+.copilot-empty-state {
+  text-align: center;
+  padding: 10px 12px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.copilot-msg-row {
+  display: flex;
+  width: 100%;
+}
+
+.copilot-msg-user {
+  justify-content: flex-end;
+}
+
+.copilot-msg-assistant {
+  justify-content: flex-start;
+}
+
+.copilot-bubble {
+  max-width: 92%;
+  border-radius: 12px;
+  padding: 14px 16px;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.copilot-bubble-user {
+  max-width: 75%;
+  background-color: var(--primary);
+  color: #ffffff;
+  border-bottom-right-radius: 4px;
+}
+
+.copilot-bubble-assistant {
+  width: 100%;
+  background-color: #ffffff;
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+  border-bottom-left-radius: 4px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.copilot-bubble-assistant.copilot-type-smalltalk,
+.copilot-bubble-assistant.copilot-type-out_of_scope,
+.copilot-bubble-assistant.copilot-type-explain {
+  max-width: 82%;
+  width: auto;
+}
+
+.copilot-msg-time {
+  display: block;
+  font-size: 11px;
+  opacity: 0.78;
+  margin-top: 4px;
+  text-align: right;
+}
+
+.copilot-assistant-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.copilot-intent-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.copilot-intent-tag.tone-neutral {
+  background-color: #f1f5f9;
+  color: #334155;
+}
+
+.copilot-intent-tag.tone-info {
+  background-color: #e0f2fe;
+  color: #0369a1;
+}
+
+.copilot-intent-tag.tone-primary {
+  background-color: #dbeafe;
+  color: #1d4ed8;
+}
+
+.copilot-intent-tag.tone-warning {
+  background-color: #fef3c7;
+  color: #b45309;
+}
+
+.copilot-intent-tag.tone-purple {
+  background-color: #f3e8ff;
+  color: #6b21a8;
+}
+
+.copilot-intent-tag.tone-success {
+  background-color: #dcfce7;
+  color: #15803d;
+}
+
+.copilot-summary-text {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text-main);
+}
+
+.copilot-forecast-v2-card,
+.copilot-whatif-card {
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  background-color: #f8fafc;
+  border: 1px solid #cbd5e1;
+}
+
+.copilot-whatif-card.whatif-invalid {
+  background-color: #fef2f2;
+  border-color: #fca5a5;
+}
+
+.copilot-forecast-v2-header,
+.copilot-whatif-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.copilot-forecast-v2-title,
+.copilot-whatif-title {
+  font-weight: 700;
+  font-size: 12.5px;
+  color: var(--primary);
+}
+
+.copilot-forecast-v2-desc {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--text-main);
+}
+
+.copilot-forecast-v2-grid,
+.copilot-whatif-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 8px;
+}
+
+.copilot-forecast-v2-cell,
+.copilot-whatif-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background-color: #ffffff;
+  border: 1px solid var(--border-color);
+}
+
+.copilot-forecast-v2-cell .cell-label,
+.copilot-whatif-cell .cell-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.copilot-forecast-v2-cell .cell-value {
+  font-size: 14px;
+  color: var(--text-main);
+}
+
+.copilot-forecast-v2-cell .cell-sub,
+.copilot-whatif-cell .cell-sub {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.copilot-forecast-gated {
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  background-color: #fffbeb;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+}
+
+.copilot-forecast-gated-header {
+  font-weight: 700;
+  font-size: 12.5px;
+  margin-bottom: 4px;
+}
+
+.copilot-forecast-gated-text {
+  margin: 0;
+  font-size: 12.5px;
+}
+
+.copilot-whatif-assumptions {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.copilot-followups {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 12px;
+}
+
+.copilot-followups .followup-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.btn-followup-chip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #bfdbfe;
+  background-color: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.btn-followup-chip:hover:not(:disabled) {
+  background-color: #dbeafe;
+}
+
+.copilot-loading-bubble {
+  color: var(--text-muted);
+  font-style: italic;
+}

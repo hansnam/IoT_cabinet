@@ -18,6 +18,8 @@ class Alert(models.Model):
         ('SENSOR_FAULT', 'Lỗi cảm biến DHT22 (không đọc được số liệu)'),
         ('FAN_FAULT', 'Sự cố quạt thông gió'),
         ('DOOR_OPEN', 'Cửa tủ mạng đang mở'),
+        ('COOLING_DEGRADATION', 'Suy giảm hiệu suất làm mát / nghi kẹt quạt (AI)'),
+        ('SENSOR_ANOMALY', 'Số đo cảm biến bất thường / nghi kẹt giá trị (AI)'),
     )
 
     SEVERITY_CHOICES = (

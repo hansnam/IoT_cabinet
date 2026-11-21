@@ -1,17 +1,21 @@
 import hashlib
 import json
+import logging
+import time
 import uuid
 from django.db import transaction
 from django.utils import timezone
-from rest_framework import mixins, permissions, status, viewsets
+from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 
 from apps.audit.models import AuditLog
 from apps.audit.services import AuditService
 from apps.commands.models import Command, OutboxMessage
 from apps.commands.dispatch import dispatch_outbox
 from apps.devices.access_services import require_access_admin
+from apps.devices.ai_copilot import MAX_QUESTION_LENGTH, query_device_copilot
 from apps.devices.models import Device, DeviceAccess, DeviceConfig
 from apps.devices.mqtt_client import publish_command_to_broker, sync_device_mqtt_access
 from apps.devices.policies import require_device_permission, visible_devices
@@ -21,6 +25,9 @@ from apps.devices.serializers import (
     DeviceControlSerializer,
     DeviceSerializer,
 )
+from apps.telemetry.anomaly import evaluate_device_anomaly
+
+logger = logging.getLogger(__name__)
 
 
 def build_esp32_config_json_and_hash(desired_config: dict) -> tuple[str, str]:
@@ -73,6 +80,7 @@ class DeviceViewSet(
     serializer_class = DeviceSerializer
     permission_classes = [permissions.IsAuthenticated]
     lookup_field = 'id'
+    throttle_scope = 'ai_copilot'
 
     def get_serializer_class(self):
         if self.action == 'create':
@@ -468,3 +476,87 @@ class DeviceViewSet(
                 device_id=updated_device.id,
                 metadata=metadata,
             )
+
+    @action(detail=True, methods=['get'], url_path='anomaly-status')
+    def anomaly_status(self, request, id=None):
+        """
+        GET /api/v1/devices/{id}/anomaly-status/
+        Đánh giá trạng thái bất thường & bảo trì dự đoán (Hướng 1 - chỉ đọc, không tạo/đóng Alert).
+        """
+        device = self.get_object()
+        require_device_permission(request.user, device, action='VIEW')
+        raw_result = evaluate_device_anomaly(device)
+        clean_result = {k: v for k, v in raw_result.items() if not k.startswith('_')}
+        return Response(clean_result, status=status.HTTP_200_OK)
+
+    @action(
+        detail=True,
+        methods=['post'],
+        url_path='ai-copilot',
+        throttle_classes=[ScopedRateThrottle],
+    )
+    def ai_copilot(self, request, id=None):
+        """
+        POST /api/v1/devices/{id}/ai-copilot/
+        Trợ lý AI phân tích sự cố & hỏi đáp vận hành theo từng tủ mạng (Hướng 4 - chỉ đọc).
+        """
+        device = self.get_object()
+        require_device_permission(request.user, device, action='VIEW')
+
+        data = request.data if isinstance(request.data, dict) else {}
+        raw_question = data.get('question')
+        if not isinstance(raw_question, str) or not raw_question.strip():
+            raise serializers.ValidationError({'question': ['Câu hỏi không được để trống.']})
+        clean_question = raw_question.strip()
+        if len(clean_question) > MAX_QUESTION_LENGTH:
+            raise serializers.ValidationError(
+                {'question': [f'Câu hỏi không được vượt quá {MAX_QUESTION_LENGTH} ký tự.']}
+            )
+
+        raw_hours = data.get('hours', 24)
+        if isinstance(raw_hours, bool):
+            raise serializers.ValidationError({'hours': ['Khoảng thời gian hours phải là số nguyên từ 1 đến 72.']})
+        try:
+            hours = int(raw_hours)
+        except (TypeError, ValueError):
+            raise serializers.ValidationError({'hours': ['Khoảng thời gian hours phải là số nguyên từ 1 đến 72.']})
+        if not (1 <= hours <= 72):
+            raise serializers.ValidationError({'hours': ['Khoảng thời gian hours phải nằm trong khoảng 1 đến 72 giờ.']})
+
+        raw_history = data.get('history')
+        if raw_history is not None and not isinstance(raw_history, list):
+            raise serializers.ValidationError({'history': ['Trường history phải là danh sách các lượt hội thoại.']})
+
+        started = time.monotonic()
+        result = query_device_copilot(
+            device,
+            question=clean_question,
+            hours=hours,
+            history=raw_history,
+        )
+        elapsed_ms = max(0, int(round((time.monotonic() - started) * 1000)))
+        audit_error_code = result.pop('_audit_error_code', None)
+
+        # Ghi AuditLog trong transaction riêng và bọc try/except để lỗi audit không làm hỏng response
+        request_id = getattr(request, 'request_id', None) or str(uuid.uuid4())
+        try:
+            with transaction.atomic():
+                AuditService.record_event(
+                    function_key="AI_COPILOT",
+                    action="COPILOT_QUERY",
+                    outcome="SUCCESS",
+                    summary="Truy vấn trợ lý AI sự cố cho tủ mạng.",
+                    request_id=request_id,
+                    actor_user=request.user,
+                    actor_type=AuditLog.ActorType.USER,
+                    target_type="DEVICE",
+                    target_id=device.id,
+                    device_id=device.id,
+                    error_code=audit_error_code,
+                    duration_ms=elapsed_ms,
+                    metadata={"device_id": device.id},
+                )
+        except Exception:
+            logger.exception("[AI Copilot] Lỗi khi ghi AuditLog cho truy vấn AI của tủ %s", device.id)
+
+        return Response(result, status=status.HTTP_200_OK)
