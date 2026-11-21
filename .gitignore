@@ -87,3 +87,6 @@ docs/RA_SOAT_VA_CAP_NHAT_BAO_CAO.md
 *.pdf
 
 *.md
+
+# ML Artifacts (sinh tự động bởi manage.py train_anomaly_model)
+backend/apps/telemetry/ml/*.joblib

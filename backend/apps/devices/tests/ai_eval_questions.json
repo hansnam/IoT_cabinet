@@ -1,0 +1,61 @@
+[
+  {"question": "xin chao", "expected_type": "SMALLTALK"},
+  {"question": "he loo", "expected_type": "SMALLTALK"},
+  {"question": "Hello trợ lý", "expected_type": "SMALLTALK"},
+  {"question": "Bạn là ai và giúp được gì?", "expected_type": "SMALLTALK"},
+  {"question": "Cảm ơn bạn nhiều nhé", "expected_type": "SMALLTALK"},
+
+  {"question": "2+2 bằng mấy?", "expected_type": "OUT_OF_SCOPE"},
+  {"question": "Thời tiết Hà Nội hôm nay thế nào?", "expected_type": "OUT_OF_SCOPE"},
+  {"question": "Viết một bài thơ lục bát về mùa thu", "expected_type": "OUT_OF_SCOPE"},
+  {"question": "Giá vàng hôm nay bao nhiêu?", "expected_type": "OUT_OF_SCOPE"},
+  {"question": "Đội nào vô địch World Cup?", "expected_type": "OUT_OF_SCOPE"},
+
+  {"question": "IsolationForest là gì?", "expected_type": "EXPLAIN"},
+  {"question": "Giải thích cơ chế hysteresis", "expected_type": "EXPLAIN"},
+  {"question": "ml_score nghĩa là sao?", "expected_type": "EXPLAIN"},
+  {"question": "Tại sao cần fan_on và fan_off?", "expected_type": "EXPLAIN"},
+  {"question": "Cảnh báo COOLING_DEGRADATION là gì?", "expected_type": "EXPLAIN"},
+
+  {"question": "Nhiệt độ hiện tại của tủ là bao nhiêu?", "expected_type": "STATUS"},
+  {"question": "Tóm tắt tình trạng & sự cố 24h qua", "expected_type": "STATUS"},
+  {"question": "Quạt đang bật hay tắt?", "expected_type": "STATUS"},
+  {"question": "Trạng thái kết nối hiện tại của tủ thế nào?", "expected_type": "STATUS"},
+  {"question": "Tủ có cảnh báo nào đang mở không?", "expected_type": "STATUS"},
+
+  {"question": "Dự báo xu hướng nhiệt độ 30 phút tới", "expected_type": "FORECAST"},
+  {"question": "15 phút nữa nhiệt độ tủ khoảng bao nhiêu?", "expected_type": "FORECAST"},
+  {"question": "Bao lâu nữa thì chạm ngưỡng cảnh báo quá nhiệt?", "expected_type": "FORECAST"},
+  {"question": "Du bao nhiet do va do am sap toi", "expected_type": "FORECAST"},
+  {"question": "Xu hướng nhiệt độ 5 phút tới thế nào?", "expected_type": "FORECAST"},
+
+  {"question": "Tại sao tủ lại bị nóng và có cảnh báo?", "expected_type": "DIAGNOSE"},
+  {"question": "Đánh giá hiệu suất làm mát của quạt", "expected_type": "DIAGNOSE"},
+  {"question": "Phân tích sự cố tủ này?", "expected_type": "DIAGNOSE"},
+  {"question": "Cảm biến của tủ có bị lỗi không?", "expected_type": "DIAGNOSE"},
+  {"question": "Nguyên nhân nào dẫn đến suy giảm làm mát?", "expected_type": "DIAGNOSE"},
+
+  {"question": "Nếu hạ ngưỡng bật quạt xuống 28°C thì sao?", "expected_type": "WHAT_IF"},
+  {"question": "Giả sử đặt fan_on = 29 và fan_off = 27 thì ảnh hưởng thế nào?", "expected_type": "WHAT_IF"},
+  {"question": "Tăng ngưỡng bật quạt lên 34 độ có sao không?", "expected_type": "WHAT_IF"},
+  {"question": "Neu doi fan_on_c thanh 27.5 thi bao lau quat bat?", "expected_type": "WHAT_IF"},
+  {"question": "Điều gì xảy ra khi hạ fan_off xuống 25°C?", "expected_type": "WHAT_IF"},
+
+  {"question": "Giải thích các lệnh TIMEOUT / FAILED gần đây", "expected_type": "COMMANDS"},
+  {"question": "Tại sao gửi lệnh bật quạt lại bị timeout?", "expected_type": "COMMANDS"},
+  {"question": "Kiểm tra lịch sử lệnh điều khiển gần đây", "expected_type": "COMMANDS"},
+  {"question": "Có lệnh MQTT nào bị lỗi FAILED không?", "expected_type": "COMMANDS"},
+  {"question": "Xem các lệnh điều khiển thất bại trong 24h qua", "expected_type": "COMMANDS"},
+
+  {"question": "So sánh nhiệt độ tủ này với các tủ khác", "expected_type": "COMPARE"},
+  {"question": "Hôm nay tủ có nóng hơn so với trung bình hệ thống không?", "expected_type": "COMPARE"},
+  {"question": "So với bình thường thì biên độ nhiệt của tủ thế nào?", "expected_type": "COMPARE"},
+  {"question": "So sanh tu nay voi cac tu khac trong he thong", "expected_type": "COMPARE"},
+  {"question": "Đối chiếu giữa các tủ mạng xem tủ này cao hơn hay thấp hơn trung bình", "expected_type": "COMPARE"},
+
+  {"question": "Tôi nên làm gì bây giờ để xử lý sự cố?", "expected_type": "ADVICE"},
+  {"question": "Hướng dẫn xử lý khi tủ bị suy giảm làm mát", "expected_type": "ADVICE"},
+  {"question": "Khuyến nghị vận hành và các bước kiểm tra bảo trì", "expected_type": "ADVICE"},
+  {"question": "Cách khắc phục cảnh báo hiện tại như thế nào?", "expected_type": "ADVICE"},
+  {"question": "Cần làm gì để hạ nhiệt cho tủ mạng?", "expected_type": "ADVICE"}
+]

@@ -23,8 +23,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 backend_env = BASE_DIR / '.env'
+root_env = BASE_DIR.parent / '.env'
 if backend_env.exists():
     load_dotenv(dotenv_path=backend_env)
+if root_env.exists():
+    load_dotenv(dotenv_path=root_env, override=False)
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.getenv(
@@ -198,6 +201,9 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    'DEFAULT_THROTTLE_RATES': {
+        'ai_copilot': os.getenv('AI_COPILOT_THROTTLE_RATE', '10/min'),
+    },
 }
 
 # Test Runner Guard
@@ -244,4 +250,18 @@ MQTT_ADMIN_USERNAME = os.getenv("MQTT_ADMIN_USERNAME", "")
 MQTT_ADMIN_PASSWORD = os.getenv("MQTT_ADMIN_PASSWORD", "")
 MQTT_CA_FILE = os.getenv("MQTT_CA_FILE", "")
 MQTT_CONFIG_ENCRYPTION_KEY = os.getenv("MQTT_CONFIG_ENCRYPTION_KEY", "")
+
+# Cấu hình AI Phát hiện bất thường & Trợ lý sự cố (Hướng 1 & Hướng 4)
+AI_ANOMALY_ENABLED = os.getenv('AI_ANOMALY_ENABLED', 'True').lower() in ('true', '1', 'yes')
+AI_ANOMALY_MODEL_PATH = os.getenv(
+    'AI_ANOMALY_MODEL_PATH',
+    str(BASE_DIR / 'apps' / 'telemetry' / 'ml' / 'isolation_forest.joblib'),
+)
+AI_COPILOT_ENABLED = os.getenv('AI_COPILOT_ENABLED', 'True').lower() in ('true', '1', 'yes')
+AI_COPILOT_PROVIDER = os.getenv('AI_COPILOT_PROVIDER', 'fallback')
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', os.getenv('AI_LLM_API_KEY', ''))
+AI_LLM_MODEL = os.getenv('AI_LLM_MODEL', 'gemini-4-hydrogen')
+AI_LLM_BASE_URL = os.getenv('AI_LLM_BASE_URL', '')
+AI_LLM_TIMEOUT_SECONDS = int(os.getenv('AI_LLM_TIMEOUT_SECONDS', '10'))
+
 
